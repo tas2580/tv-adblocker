@@ -108,6 +108,25 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
+func TestDetectionControlEndpoints(t *testing.T) {
+	a := &App{status: Status{Running: true}, cancel: func() {}}
+
+	getStop := httptest.NewRecorder()
+	a.handleStop(getStop, httptest.NewRequest(http.MethodGet, "/api/stop", nil))
+	if getStop.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /api/stop status = %d", getStop.Code)
+	}
+
+	stop := httptest.NewRecorder()
+	a.handleStop(stop, httptest.NewRequest(http.MethodPost, "/api/stop", nil))
+	if stop.Code != http.StatusOK {
+		t.Fatalf("POST /api/stop status = %d", stop.Code)
+	}
+	if a.status.Running || a.cancel != nil {
+		t.Fatalf("monitor was not stopped: %#v", a.status)
+	}
+}
+
 func TestLocaleEndpoint(t *testing.T) {
 	a := &App{}
 	request := httptest.NewRequest(http.MethodGet, "/i18n/en.json", nil)

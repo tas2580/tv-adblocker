@@ -21,6 +21,8 @@
   "status.playSender": "Zum Sender zurückschalten",
   "status.playPlaceholder": "Platzhalter manuell einschalten",
   "status.resumeAutomatic": "Automatik fortsetzen",
+  "status.startDetection": "Erkennung starten",
+  "status.stopDetection": "Erkennung stoppen",
   "status.testKodi": "Kodi-Verbindung testen",
   "status.channel": "Kodi-Sender: {value}",
   "status.noChannel": "kein passender Sender",

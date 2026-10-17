@@ -919,6 +919,10 @@ func (a *App) restartMonitor() {
 	_ = a.startMonitor()
 }
 func (a *App) handleStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
 	if e := a.startMonitor(); e != nil {
 		http.Error(w, e.Error(), 400)
 		return
@@ -926,6 +930,10 @@ func (a *App) handleStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 func (a *App) handleStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
 	a.mu.Lock()
 	if a.cancel != nil {
 		a.cancel()

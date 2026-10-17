@@ -21,6 +21,8 @@
   "status.playSender": "Switch back to channel",
   "status.playPlaceholder": "Show placeholder manually",
   "status.resumeAutomatic": "Resume automation",
+  "status.startDetection": "Start detection",
+  "status.stopDetection": "Stop detection",
   "status.testKodi": "Test Kodi connection",
   "status.channel": "Kodi channel: {value}",
   "status.noChannel": "no matching channel",
