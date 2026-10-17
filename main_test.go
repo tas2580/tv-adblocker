@@ -375,6 +375,29 @@ func TestObserveHonorsProgramCooldown(t *testing.T) {
 	}
 }
 
+func TestStartMonitorPausesDuringProgramCooldown(t *testing.T) {
+	a := &App{
+		cfg:                  Config{PauseDetectionDuringProgramLock: true},
+		active:               Channel{Name: "Test", URL: "http://tv.example/test.m3u8"},
+		status:               Status{Mode: "monitoring"},
+		programCooldownUntil: time.Now().Add(time.Minute),
+	}
+	if err := a.startMonitor(); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.RLock()
+	paused, running, mode := a.status.DetectionPaused, a.status.Running, a.status.Mode
+	a.mu.RUnlock()
+	if !paused || running || mode != "program-lock" {
+		t.Fatalf("detector was not paused for program lock: %#v", a.status)
+	}
+	response := httptest.NewRecorder()
+	a.handleStop(response, httptest.NewRequest(http.MethodPost, "/api/stop", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("stop status = %d", response.Code)
+	}
+}
+
 func TestObserveHonorsPlaceholderMinimum(t *testing.T) {
 	a := &App{status: Status{Mode: "placeholder"}, placeholderMinUntil: time.Now().Add(time.Minute)}
 	a.observe(true, 1, Config{MissingFrames: 1, PresentFrames: 1})

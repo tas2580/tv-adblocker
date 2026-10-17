@@ -42,30 +42,31 @@ type KodiConfig struct {
 	Password string `json:"password"`
 }
 type Config struct {
-	HTTPAddr               string     `json:"http_addr"`
-	M3UURL                 string     `json:"m3u_url"`
-	StreamURL              string     `json:"stream_url"`
-	StreamName             string     `json:"stream_name"`
-	PlaceholderPath        string     `json:"placeholder_path"`
-	PlaceholderURL         string     `json:"placeholder_url"`
-	PlaceholderImage       string     `json:"placeholder_image"`
-	PlaceholderSource      string     `json:"placeholder_source"`
-	KodiPlaceholder        string     `json:"kodi_placeholder"`
-	KodiPlaceholders       []string   `json:"kodi_placeholders"`
-	PublicBaseURL          string     `json:"public_base_url"`
-	LogoRect               Rect       `json:"logo_rect"`
-	IntervalSeconds        int        `json:"interval_seconds"`
-	MissingFrames          int        `json:"missing_frames"`
-	PresentFrames          int        `json:"present_frames"`
-	ProgramCooldownSeconds int        `json:"program_cooldown_seconds"`
-	PlaceholderMinSeconds  int        `json:"placeholder_min_seconds"`
-	SimilarityMinimum      float64    `json:"similarity_minimum"`
-	ContrastStrength       float64    `json:"contrast_strength"`
-	Kodi                   KodiConfig `json:"kodi"`
+	HTTPAddr                        string     `json:"http_addr"`
+	M3UURL                          string     `json:"m3u_url"`
+	StreamURL                       string     `json:"stream_url"`
+	StreamName                      string     `json:"stream_name"`
+	PlaceholderPath                 string     `json:"placeholder_path"`
+	PlaceholderURL                  string     `json:"placeholder_url"`
+	PlaceholderImage                string     `json:"placeholder_image"`
+	PlaceholderSource               string     `json:"placeholder_source"`
+	KodiPlaceholder                 string     `json:"kodi_placeholder"`
+	KodiPlaceholders                []string   `json:"kodi_placeholders"`
+	PublicBaseURL                   string     `json:"public_base_url"`
+	LogoRect                        Rect       `json:"logo_rect"`
+	IntervalSeconds                 int        `json:"interval_seconds"`
+	MissingFrames                   int        `json:"missing_frames"`
+	PresentFrames                   int        `json:"present_frames"`
+	ProgramCooldownSeconds          int        `json:"program_cooldown_seconds"`
+	PlaceholderMinSeconds           int        `json:"placeholder_min_seconds"`
+	PauseDetectionDuringProgramLock bool       `json:"pause_detection_during_program_lock"`
+	SimilarityMinimum               float64    `json:"similarity_minimum"`
+	ContrastStrength                float64    `json:"contrast_strength"`
+	Kodi                            KodiConfig `json:"kodi"`
 }
 
 func defaultConfig() Config {
-	return Config{HTTPAddr: "127.0.0.1:8099", IntervalSeconds: 2, MissingFrames: 3, PresentFrames: 3, ProgramCooldownSeconds: 600, PlaceholderMinSeconds: 30, SimilarityMinimum: .80, ContrastStrength: 1.5}
+	return Config{HTTPAddr: "127.0.0.1:8099", IntervalSeconds: 2, MissingFrames: 3, PresentFrames: 3, ProgramCooldownSeconds: 600, PlaceholderMinSeconds: 30, PauseDetectionDuringProgramLock: true, SimilarityMinimum: .80, ContrastStrength: 1.5}
 }
 func (c *Config) normalize() {
 	if c.HTTPAddr == "" {
@@ -146,6 +147,7 @@ type Status struct {
 	ProgramCooldownRemaining int     `json:"program_cooldown_remaining"`
 	PlaceholderMinRemaining  int     `json:"placeholder_min_remaining"`
 	ProgramCooldownActive    bool    `json:"program_cooldown_active"`
+	DetectionPaused          bool    `json:"detection_paused"`
 	ProgramElapsedSeconds    int     `json:"program_elapsed_seconds"`
 	AdvertElapsedSeconds     int     `json:"advert_elapsed_seconds"`
 }
@@ -184,6 +186,8 @@ type App struct {
 	lastFrame            Frame
 	previewFrame         Frame
 	cancel               context.CancelFunc
+	resumeCancel         context.CancelFunc
+	resumeID             uint64
 	httpClient           *http.Client
 }
 
@@ -334,7 +338,7 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	n.normalize()
 	a.mu.Lock()
-	running := a.status.Running
+	running := a.status.Running || a.status.DetectionPaused
 	if n.Kodi.Password == "" {
 		n.Kodi.Password = a.cfg.Kodi.Password
 	}
@@ -342,7 +346,9 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 		a.cancel()
 		a.cancel = nil
 	}
+	a.cancelScheduledResumeLocked()
 	a.status.Running = false
+	a.status.DetectionPaused = false
 	a.cfg = n
 	a.mu.Unlock()
 	if e := a.saveConfig(); e != nil {
@@ -631,6 +637,7 @@ func (a *App) setActiveChannel(channel Channel) {
 	}
 	a.suspendMonitor()
 	a.mu.Lock()
+	a.cancelScheduledResumeLocked()
 	a.active = channel
 	a.status.ActiveChannel = channel.Name
 	a.status.Matches, a.status.Misses = 0, 0
@@ -914,7 +921,9 @@ func (a *App) restartMonitor() {
 		a.cancel()
 		a.cancel = nil
 	}
+	a.cancelScheduledResumeLocked()
 	a.status.Running = false
+	a.status.DetectionPaused = false
 	a.mu.Unlock()
 	_ = a.startMonitor()
 }
@@ -939,7 +948,9 @@ func (a *App) handleStop(w http.ResponseWriter, r *http.Request) {
 		a.cancel()
 		a.cancel = nil
 	}
+	a.cancelScheduledResumeLocked()
 	a.status.Running = false
+	a.status.DetectionPaused = false
 	a.mu.Unlock()
 	writeJSON(w, map[string]bool{"ok": true})
 }
@@ -972,6 +983,7 @@ func (a *App) handleResumeAutomatic(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	wasManualPlaceholder := a.status.ManualPlaceholder
+	wasPaused := a.status.DetectionPaused
 	a.status.ManualPlaceholder = false
 	a.status.Matches, a.status.Misses = 0, 0
 	if wasManualPlaceholder {
@@ -982,6 +994,9 @@ func (a *App) handleResumeAutomatic(w http.ResponseWriter, r *http.Request) {
 		a.status.Mode = "monitoring"
 	}
 	a.mu.Unlock()
+	if wasPaused {
+		_ = a.startMonitor()
+	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 func (a *App) handleKodiTest(w http.ResponseWriter, r *http.Request) {
@@ -1100,6 +1115,13 @@ func (a *App) startMonitor() error {
 		a.mu.Unlock()
 		return errors.New("Kodi is not playing a known TV sender")
 	}
+	if a.cfg.PauseDetectionDuringProgramLock && a.programCooldownUntil.After(time.Now()) {
+		a.pauseMonitorUntilLocked(a.programCooldownUntil)
+		a.mu.Unlock()
+		return nil
+	}
+	a.cancelScheduledResumeLocked()
+	a.status.DetectionPaused = false
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel = cancel
 	a.status.Running = true
@@ -1113,6 +1135,55 @@ func (a *App) startMonitor() error {
 	a.mu.Unlock()
 	go a.monitor(ctx)
 	return nil
+}
+
+// pauseMonitorUntilLocked releases the stream connection during the program
+// grace period and starts a fresh detector as soon as it ends. a.mu is held.
+func (a *App) pauseMonitorUntilLocked(until time.Time) {
+	if a.resumeCancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.resumeCancel = cancel
+	a.resumeID++
+	resumeID := a.resumeID
+	a.status.Running = false
+	a.status.DetectionPaused = true
+	a.status.Mode = "program-lock"
+	a.status.Matches, a.status.Misses = 0, 0
+	go func() {
+		delay := time.Until(until)
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+			}
+		}
+		a.mu.Lock()
+		if ctx.Err() != nil || a.resumeID != resumeID {
+			a.mu.Unlock()
+			return
+		}
+		a.resumeCancel = nil
+		a.status.DetectionPaused = false
+		a.mu.Unlock()
+		if err := a.startMonitor(); err != nil {
+			a.setError(err)
+		}
+	}()
+}
+
+// cancelScheduledResumeLocked prevents a paused detector from being revived
+// after the user stopped it, changed sender, or changed its configuration.
+func (a *App) cancelScheduledResumeLocked() {
+	if a.resumeCancel != nil {
+		a.resumeCancel()
+		a.resumeCancel = nil
+	}
+	a.resumeID++
 }
 func (a *App) monitor(ctx context.Context) {
 	for {
@@ -1289,10 +1360,13 @@ func (a *App) switchToSender(knownProgramStart bool) error {
 		a.mu.Unlock()
 	}
 	a.mu.Lock()
+	wasPaused := a.status.DetectionPaused
+	a.cancelScheduledResumeLocked()
+	a.status.DetectionPaused = false
 	a.status.Mode = "switching-sender"
 	a.mu.Unlock()
 	wasMonitoring := a.suspendMonitor()
-	if wasMonitoring {
+	if wasMonitoring || wasPaused {
 		// Give ffmpeg and Kodi's previous RTSP player time to release their slots.
 		time.Sleep(750 * time.Millisecond)
 	}
