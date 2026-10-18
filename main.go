@@ -242,6 +242,7 @@ func (a *App) routes(m *http.ServeMux) {
 	m.HandleFunc("/api/config", a.handleConfig)
 	m.HandleFunc("/api/playlist", a.handlePlaylist)
 	m.HandleFunc("/api/frame.bmp", a.handleFrame)
+	m.HandleFunc("/api/optimize-rect", a.handleOptimizeRect)
 	m.HandleFunc("/api/reference", a.handleReference)
 	m.HandleFunc("/api/references", a.handleReferences)
 	m.HandleFunc("/api/references/", a.handleReferenceItem)
@@ -680,6 +681,28 @@ func (a *App) handleFrame(w http.ResponseWriter, r *http.Request) {
 	a.mu.Unlock()
 	w.Header().Set("Content-Type", "image/bmp")
 	_, _ = w.Write(encodeBMP(f))
+}
+
+// handleOptimizeRect trims only low-detail outer rows and columns from a
+// user-selected logo rectangle. It intentionally leaves detailed borders
+// alone: a transparent logo can have programme content behind it.
+func (a *App) handleOptimizeRect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var rect Rect
+	if !decodeJSON(w, r, &rect) {
+		return
+	}
+	a.mu.RLock()
+	frame := a.previewFrame.clone()
+	a.mu.RUnlock()
+	if !rectInside(frame, rect) {
+		http.Error(w, "invalid or out-of-frame rectangle", http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, trimUniformBorder(frame, rect))
 }
 func (a *App) handleReference(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -1592,6 +1615,80 @@ func (a *App) clearKodiPlaylists() error {
 }
 func validRect(r Rect) bool           { return r.X >= 0 && r.Y >= 0 && r.W >= 8 && r.H >= 8 }
 func rectInside(f Frame, r Rect) bool { return validRect(r) && r.X+r.W <= f.W && r.Y+r.H <= f.H }
+
+// trimUniformBorder removes the low-detail padding commonly left around a
+// logo after a manual drag. The threshold is deliberately conservative so a
+// moving or textured background is not mistaken for empty padding.
+func trimUniformBorder(f Frame, r Rect) Rect {
+	const detailThreshold = 12.0
+	for {
+		trimmed := false
+		if r.H > 8 && edgeDetail(f, r, "top") < detailThreshold {
+			r.Y++
+			r.H--
+			trimmed = true
+		}
+		if r.H > 8 && edgeDetail(f, r, "bottom") < detailThreshold {
+			r.H--
+			trimmed = true
+		}
+		if r.W > 8 && edgeDetail(f, r, "left") < detailThreshold {
+			r.X++
+			r.W--
+			trimmed = true
+		}
+		if r.W > 8 && edgeDetail(f, r, "right") < detailThreshold {
+			r.W--
+			trimmed = true
+		}
+		if !trimmed {
+			return r
+		}
+	}
+}
+
+// edgeDetail combines variation along an edge with the contrast to the next
+// inner row or column. Flat padding scores near zero; a logo edge or a
+// textured scene scores higher.
+func edgeDetail(f Frame, r Rect, edge string) float64 {
+	var sum float64
+	var count int
+	length := r.H
+	if edge == "top" || edge == "bottom" {
+		length = r.W
+	}
+	for n := 0; n < length; n++ {
+		var x, y, innerX, innerY int
+		switch edge {
+		case "top":
+			x, y, innerX, innerY = r.X+n, r.Y, r.X+n, r.Y+1
+		case "bottom":
+			x, y, innerX, innerY = r.X+n, r.Y+r.H-1, r.X+n, r.Y+r.H-2
+		case "left":
+			x, y, innerX, innerY = r.X, r.Y+n, r.X+1, r.Y+n
+		case "right":
+			x, y, innerX, innerY = r.X+r.W-1, r.Y+n, r.X+r.W-2, r.Y+n
+		}
+		value := pixelLuminance(f, x, y)
+		sum += math.Abs(value - pixelLuminance(f, innerX, innerY))
+		if n > 0 {
+			if edge == "top" || edge == "bottom" {
+				sum += math.Abs(value - pixelLuminance(f, x-1, y))
+			} else {
+				sum += math.Abs(value - pixelLuminance(f, x, y-1))
+			}
+			count++
+		}
+		count++
+	}
+	return sum / float64(count)
+}
+
+func pixelLuminance(f Frame, x, y int) float64 {
+	i := (y*f.W + x) * 3
+	return .2126*float64(f.Pix[i]) + .7152*float64(f.Pix[i+1]) + .0722*float64(f.Pix[i+2])
+}
+
 func cropFrame(f Frame, r Rect) Frame {
 	out := Frame{r.W, r.H, make([]byte, r.W*r.H*3)}
 	for y := 0; y < r.H; y++ {
@@ -1622,10 +1719,10 @@ func loadReference(p string) (Frame, error) {
 	return Frame{w, h, b[8:]}, nil
 }
 
-// compareLogo compares a live logo area with a reference using SSIM after
-// luminance conversion and contrast adjustment. Unlike direct RGB distance,
-// this gives the logo's shape more weight than small colour and brightness
-// shifts in the surrounding programme image.
+// compareLogo combines luminance SSIM with a normalized Sobel edge score.
+// SSIM retains colour/brightness information while the edge score emphasizes
+// the logo's shape, making transparent logos less sensitive to a changing
+// programme image behind them.
 func compareLogo(frame, ref Frame, r Rect, contrastStrength float64) (float64, error) {
 	if !rectInside(frame, r) {
 		return 0, errors.New("logo rectangle outside decoded frame")
@@ -1634,6 +1731,8 @@ func compareLogo(frame, ref Frame, r Rect, contrastStrength float64) (float64, e
 		contrastStrength = 1.5
 	}
 	const side = 48
+	frameLuminance := make([]float64, side*side)
+	refLuminance := make([]float64, side*side)
 	var frameSum, refSum float64
 	for y := 0; y < side; y++ {
 		for x := 0; x < side; x++ {
@@ -1643,8 +1742,11 @@ func compareLogo(frame, ref Frame, r Rect, contrastStrength float64) (float64, e
 			ry := y * ref.H / side
 			fi := (sy*frame.W + sx) * 3
 			ri := (ry*ref.W + rx) * 3
-			frameSum += contrastLuminance(frame.Pix[fi], frame.Pix[fi+1], frame.Pix[fi+2], contrastStrength)
-			refSum += contrastLuminance(ref.Pix[ri], ref.Pix[ri+1], ref.Pix[ri+2], contrastStrength)
+			i := y*side + x
+			frameLuminance[i] = contrastLuminance(frame.Pix[fi], frame.Pix[fi+1], frame.Pix[fi+2], contrastStrength)
+			refLuminance[i] = contrastLuminance(ref.Pix[ri], ref.Pix[ri+1], ref.Pix[ri+2], contrastStrength)
+			frameSum += frameLuminance[i]
+			refSum += refLuminance[i]
 		}
 	}
 	pixels := float64(side * side)
@@ -1652,14 +1754,9 @@ func compareLogo(frame, ref Frame, r Rect, contrastStrength float64) (float64, e
 	var frameVariance, refVariance, covariance float64
 	for y := 0; y < side; y++ {
 		for x := 0; x < side; x++ {
-			sx := r.X + x*r.W/side
-			sy := r.Y + y*r.H/side
-			rx := x * ref.W / side
-			ry := y * ref.H / side
-			fi := (sy*frame.W + sx) * 3
-			ri := (ry*ref.W + rx) * 3
-			frameDelta := contrastLuminance(frame.Pix[fi], frame.Pix[fi+1], frame.Pix[fi+2], contrastStrength) - frameMean
-			refDelta := contrastLuminance(ref.Pix[ri], ref.Pix[ri+1], ref.Pix[ri+2], contrastStrength) - refMean
+			i := y*side + x
+			frameDelta := frameLuminance[i] - frameMean
+			refDelta := refLuminance[i] - refMean
 			frameVariance += frameDelta * frameDelta
 			refVariance += refDelta * refDelta
 			covariance += frameDelta * refDelta
@@ -1670,9 +1767,43 @@ func compareLogo(frame, ref Frame, r Rect, contrastStrength float64) (float64, e
 	covariance /= pixels
 	const c1 = 6.5025  // (0.01 * 255)²
 	const c2 = 58.5225 // (0.03 * 255)²
-	score := ((2*frameMean*refMean + c1) * (2*covariance + c2)) /
+	ssim := ((2*frameMean*refMean + c1) * (2*covariance + c2)) /
 		((frameMean*frameMean + refMean*refMean + c1) * (frameVariance + refVariance + c2))
-	return math.Max(0, math.Min(1, score)), nil
+	ssim = math.Max(0, math.Min(1, ssim))
+
+	edgeScore, usableEdges := sobelSimilarity(frameLuminance, refLuminance, side)
+	if !usableEdges {
+		// Uniform areas have no orientation to compare. In that case SSIM is
+		// the meaningful signal and preserves compatibility with such references.
+		return ssim, nil
+	}
+	// The shape is deliberately dominant: the programme background can make
+	// SSIM differ substantially even when the transparent logo is unchanged.
+	return .8*edgeScore + .2*ssim, nil
+}
+
+// sobelSimilarity measures whether edge direction and position agree. It is
+// cosine similarity over the horizontal and vertical Sobel gradients, so the
+// score is insensitive to uniform brightness offsets.
+func sobelSimilarity(frame, ref []float64, side int) (float64, bool) {
+	var dot, frameEnergy, refEnergy float64
+	for y := 1; y < side-1; y++ {
+		for x := 1; x < side-1; x++ {
+			i := y*side + x
+			frameX := -frame[i-side-1] + frame[i-side+1] - 2*frame[i-1] + 2*frame[i+1] - frame[i+side-1] + frame[i+side+1]
+			frameY := -frame[i-side-1] - 2*frame[i-side] - frame[i-side+1] + frame[i+side-1] + 2*frame[i+side] + frame[i+side+1]
+			refX := -ref[i-side-1] + ref[i-side+1] - 2*ref[i-1] + 2*ref[i+1] - ref[i+side-1] + ref[i+side+1]
+			refY := -ref[i-side-1] - 2*ref[i-side] - ref[i-side+1] + ref[i+side-1] + 2*ref[i+side] + ref[i+side+1]
+			dot += frameX*refX + frameY*refY
+			frameEnergy += frameX*frameX + frameY*frameY
+			refEnergy += refX*refX + refY*refY
+		}
+	}
+	// Values below this threshold are effectively flat after downsampling.
+	if frameEnergy < 1 || refEnergy < 1 {
+		return 0, false
+	}
+	return math.Max(0, math.Min(1, dot/math.Sqrt(frameEnergy*refEnergy))), true
 }
 
 func contrastLuminance(red, green, blue byte, strength float64) float64 {

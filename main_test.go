@@ -87,6 +87,67 @@ func TestCompareLogoToleratesBrightnessAndContrastChanges(t *testing.T) {
 	}
 }
 
+func TestCompareLogoRewardsMatchingEdgesDespiteChangedBackground(t *testing.T) {
+	ref := Frame{48, 48, make([]byte, 48*48*3)}
+	frame := Frame{96, 96, make([]byte, 96*96*3)}
+	wrong := Frame{96, 96, make([]byte, 96*96*3)}
+	fill := func(f *Frame, value byte) {
+		for i := range f.Pix {
+			f.Pix[i] = value
+		}
+	}
+	fill(&ref, 45)
+	fill(&frame, 150)
+	fill(&wrong, 150)
+	// A simple asymmetric mark represents the stable logo shape.
+	for y := 12; y < 36; y++ {
+		for x := 14; x < 20; x++ {
+			for _, f := range []*Frame{&ref, &frame} {
+				px, py := x, y
+				if f != &ref {
+					px, py = 24+x, 24+y
+				}
+				i := (py*f.W + px) * 3
+				f.Pix[i], f.Pix[i+1], f.Pix[i+2] = 240, 240, 240
+			}
+		}
+	}
+	for y := 30; y < 36; y++ {
+		for x := 14; x < 34; x++ {
+			for _, f := range []*Frame{&ref, &frame} {
+				px, py := x, y
+				if f != &ref {
+					px, py = 24+x, 24+y
+				}
+				i := (py*f.W + px) * 3
+				f.Pix[i], f.Pix[i+1], f.Pix[i+2] = 240, 240, 240
+			}
+		}
+	}
+	matched, err := compareLogo(frame, ref, Rect{24, 24, 48, 48}, 1.5)
+	if err != nil || matched < .8 {
+		t.Fatalf("matching logo on changed background = %f, %v", matched, err)
+	}
+	missed, err := compareLogo(wrong, ref, Rect{24, 24, 48, 48}, 1.5)
+	if err != nil || missed >= matched-.2 {
+		t.Fatalf("missing logo score = %f, matching score = %f, err = %v", missed, matched, err)
+	}
+}
+
+func TestTrimUniformBorderRemovesPaddingAroundLogo(t *testing.T) {
+	frame := Frame{W: 32, H: 32, Pix: make([]byte, 32*32*3)}
+	for y := 8; y < 22; y++ {
+		for x := 10; x < 22; x++ {
+			i := (y*frame.W + x) * 3
+			frame.Pix[i], frame.Pix[i+1], frame.Pix[i+2] = 255, 255, 255
+		}
+	}
+	got := trimUniformBorder(frame, Rect{W: 32, H: 32})
+	if got.X > 10 || got.Y > 8 || got.X+got.W < 22 || got.Y+got.H < 22 || got.W >= 20 || got.H >= 20 {
+		t.Fatalf("padding was not conservatively trimmed: %#v", got)
+	}
+}
+
 func TestContrastStrengthNormalization(t *testing.T) {
 	c := defaultConfig()
 	c.ContrastStrength = 0
