@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 // IDs are optional because zero is a valid Kodi library ID.
@@ -89,4 +90,47 @@ func channelForKodiItem(channels []Channel, kodiChannels []KodiChannel, item Kod
 	}
 	channel.KodiChannelID = id
 	return channel, true
+}
+
+// Programme information belongs to the monitored sender, including while
+// Kodi is showing our placeholder. Missing EPG data is not a playback error.
+func (a *App) syncKodiProgramme(cfg KodiConfig) {
+	a.mu.RLock()
+	channel := a.active
+	id := channel.KodiChannelID
+	if id == nil {
+		id = uniqueKodiChannelID(a.kodiChannels, channel.Name)
+	}
+	connectionChanged := a.cfg.Kodi != cfg
+	a.mu.RUnlock()
+	if connectionChanged {
+		return
+	}
+	title := ""
+	if channel.URL != "" && id != nil {
+		result, _, err := a.kodiCallWithConfig(cfg, "PVR.GetChannelDetails", map[string]any{
+			"channelid": *id, "properties": []string{"broadcastnow"},
+		})
+		if err == nil {
+			var response struct {
+				ChannelDetails struct {
+					BroadcastNow struct {
+						Title string `json:"title"`
+						Label string `json:"label"`
+					} `json:"broadcastnow"`
+				} `json:"channeldetails"`
+			}
+			if json.Unmarshal(result, &response) == nil {
+				title = strings.TrimSpace(response.ChannelDetails.BroadcastNow.Title)
+				if title == "" {
+					title = strings.TrimSpace(response.ChannelDetails.BroadcastNow.Label)
+				}
+			}
+		}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg.Kodi == cfg && sameActiveChannel(a.active, channel) && a.active.URL == channel.URL {
+		a.status.KodiProgramme = title
+	}
 }

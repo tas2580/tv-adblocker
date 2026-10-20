@@ -137,6 +137,7 @@ type Status struct {
 	PlaylistError            string  `json:"playlist_error,omitempty"`
 	KodiFile                 string  `json:"kodi_file,omitempty"`
 	KodiLabel                string  `json:"kodi_label,omitempty"`
+	KodiProgramme            string  `json:"kodi_programme,omitempty"`
 	KodiError                string  `json:"kodi_error,omitempty"`
 	LogoPresent              *bool   `json:"logo_present,omitempty"`
 	Similarity               float64 `json:"similarity"`
@@ -348,6 +349,7 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 	if n.Kodi != a.cfg.Kodi {
 		a.kodiChannels = nil
 		a.active.KodiChannelID = nil
+		a.status.KodiProgramme = ""
 	}
 	if a.cancel != nil {
 		a.cancel()
@@ -533,6 +535,7 @@ func (a *App) syncKodiPlayback() {
 		a.setKodiReadout("", "", err)
 		return
 	}
+	defer a.syncKodiProgramme(cfg.Kodi)
 	if !active && (a.kodiSwitchInProgress() || a.automaticReturnInProgress()) {
 		// Clearing Kodi's playlist briefly leaves it without a player. Keep the
 		// known channel until Player.Open has had a chance to start the new one.
@@ -599,6 +602,7 @@ func (a *App) setKodiReadout(file, label string, err error) {
 	a.status.KodiLabel = label
 	if err != nil {
 		a.status.KodiError = err.Error()
+		a.status.KodiProgramme = ""
 	} else {
 		a.status.KodiError = ""
 	}
@@ -722,6 +726,7 @@ func (a *App) setActiveChannel(channel Channel) {
 	a.cancelScheduledResumeLocked()
 	a.active = channel
 	a.status.ActiveChannel = channel.Name
+	a.status.KodiProgramme = ""
 	a.status.Matches, a.status.Misses = 0, 0
 	a.status.LogoPresent = nil
 	a.status.Similarity = 0

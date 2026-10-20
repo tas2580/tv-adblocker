@@ -113,6 +113,8 @@ func TestKodiPlaceholderRoundTrip(t *testing.T) {
 				switch method {
 				case "PVR.GetChannels":
 					return `{"result":{"channels":[{"channelid":42,"label":"ZDF"}]}}`, nil
+				case "PVR.GetChannelDetails":
+					return `{"result":{"channeldetails":{"broadcastnow":{"title":"Evening news"}}}}`, nil
 				case "Player.GetActivePlayers":
 					return `{"result":[{"playerid":1,"type":"video"}]}`, nil
 				case "Player.GetItem":
@@ -140,6 +142,9 @@ func TestKodiPlaceholderRoundTrip(t *testing.T) {
 			started := time.Now().Add(-time.Minute)
 			a.programStartedAt = started
 			a.syncKodiPlayback()
+			if a.status.KodiProgramme != "Evening news" {
+				t.Fatal("programme title was not loaded")
+			}
 			if a.active.KodiChannelID == nil || *a.active.KodiChannelID != 42 || !a.programStartedAt.Equal(started) {
 				t.Fatal("enriching the channel reset timing or lost the ID")
 			}
@@ -150,6 +155,9 @@ func TestKodiPlaceholderRoundTrip(t *testing.T) {
 			a.syncKodiPlayback()
 			if a.active.KodiChannelID == nil || *a.active.KodiChannelID != 42 {
 				t.Fatal("placeholder lost sender ID")
+			}
+			if a.status.KodiProgramme != "Evening news" {
+				t.Fatal("placeholder lost the sender's programme title")
 			}
 			if automatic {
 				a.observe(true, 1, Config{PresentFrames: 1})
@@ -275,5 +283,92 @@ func TestSameActiveChannelUsesKodiIdentity(t *testing.T) {
 	b.KodiChannelID = kodiTestID(42)
 	if !sameActiveChannel(a, b) {
 		t.Fatal("same Kodi ID was treated as a channel change")
+	}
+}
+
+func TestKodiProgrammeIsOptional(t *testing.T) {
+	for _, test := range []struct {
+		name, reply, want string
+		networkError      bool
+	}{
+		{"title", `{"result":{"channeldetails":{"broadcastnow":{"title":"  Heute journal  ","label":"Other"}}}}`, "Heute journal", false},
+		{"broadcast label", `{"result":{"channeldetails":{"broadcastnow":{"label":"Heute"}}}}`, "Heute", false},
+		{"no EPG", `{"result":{"channeldetails":{}}}`, "", false},
+		{"empty EPG", `{"result":{"channeldetails":{"broadcastnow":{"title":"  "}}}}`, "", false},
+		{"null EPG", `{"result":{"channeldetails":{"broadcastnow":null}}}`, "", false},
+		{"unsupported", `{"error":{"code":-32601,"message":"Method not found"}}`, "", false},
+		{"invalid response", `{"result":{"channeldetails":{"broadcastnow":[]}}}`, "", false},
+		{"network error", "", "", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			a := &App{
+				cfg:    Config{Kodi: KodiConfig{URL: "http://kodi.test"}},
+				active: Channel{Name: "ZDF", URL: "rtsp://tv/zdf", KodiChannelID: kodiTestID(42)},
+				status: Status{Mode: "sender", KodiProgramme: "Old programme"},
+			}
+			a.httpClient = kodiTestClient(t, func(method string, params map[string]json.RawMessage) (string, error) {
+				if method != "PVR.GetChannelDetails" || string(params["channelid"]) != "42" || string(params["properties"]) != `["broadcastnow"]` {
+					t.Fatalf("unexpected EPG request: %s %s", method, params)
+				}
+				if test.networkError {
+					return "", io.ErrUnexpectedEOF
+				}
+				return test.reply, nil
+			})
+			a.syncKodiProgramme(a.cfg.Kodi)
+			if a.status.KodiProgramme != test.want || a.status.KodiError != "" || a.status.LastError != "" || a.status.Mode != "sender" {
+				t.Fatalf("unexpected programme status: %#v", a.status)
+			}
+		})
+	}
+}
+
+func TestKodiProgrammeDiscardsOldSenderOrConnection(t *testing.T) {
+	for _, connectionChanged := range []bool{false, true} {
+		t.Run(map[bool]string{false: "sender", true: "connection"}[connectionChanged], func(t *testing.T) {
+			a := &App{
+				cfg:    Config{Kodi: KodiConfig{URL: "http://kodi.test"}},
+				active: Channel{Name: "ZDF", URL: "rtsp://tv/zdf", KodiChannelID: kodiTestID(42)},
+			}
+			a.httpClient = kodiTestClient(t, func(method string, params map[string]json.RawMessage) (string, error) {
+				a.mu.Lock()
+				if connectionChanged {
+					a.cfg.Kodi.URL = "http://other-kodi.test"
+				} else {
+					a.active = Channel{Name: "Das Erste", URL: "rtsp://tv/one", KodiChannelID: kodiTestID(43)}
+				}
+				a.status.KodiProgramme = "New programme"
+				a.mu.Unlock()
+				return `{"result":{"channeldetails":{"broadcastnow":{"title":"Old programme"}}}}`, nil
+			})
+			a.syncKodiProgramme(a.cfg.Kodi)
+			if a.status.KodiProgramme != "New programme" {
+				t.Fatal("stale EPG response replaced current programme")
+			}
+		})
+	}
+}
+
+func TestKodiProgrammeClearedWithoutSender(t *testing.T) {
+	a := &App{
+		cfg:    Config{Kodi: KodiConfig{URL: "http://kodi.test"}},
+		active: Channel{Name: "ZDF", URL: "rtsp://tv/zdf", KodiChannelID: kodiTestID(42)},
+		status: Status{KodiProgramme: "Old programme"},
+	}
+	a.httpClient = kodiTestClient(t, func(method string, params map[string]json.RawMessage) (string, error) {
+		if method != "Player.GetActivePlayers" {
+			t.Fatalf("unexpected request without player: %s", method)
+		}
+		return `{"result":[]}`, nil
+	})
+	a.syncKodiPlayback()
+	if a.status.KodiProgramme != "" {
+		t.Fatal("stopped playback retained the programme title")
+	}
+	a.active = Channel{Name: "Unknown", URL: "rtsp://tv/unknown"}
+	a.status.KodiProgramme = "Old programme"
+	a.syncKodiProgramme(a.cfg.Kodi)
+	if a.status.KodiProgramme != "" {
+		t.Fatal("unresolved sender retained the programme title")
 	}
 }
