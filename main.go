@@ -254,6 +254,7 @@ func (a *App) routes(m *http.ServeMux) {
 	m.HandleFunc("/api/play/sender", a.handlePlaySender)
 	m.HandleFunc("/api/play/placeholder", a.handlePlayPlaceholder)
 	m.HandleFunc("/api/resume-automatic", a.handleResumeAutomatic)
+	m.HandleFunc("/api/cancel-program-cooldown", a.handleCancelProgramCooldown)
 	m.HandleFunc("/api/kodi-test", a.handleKodiTest)
 	m.HandleFunc("/api/placeholder-image", a.handlePlaceholderImageUpload)
 	m.HandleFunc("/placeholder.mp4", a.handlePlaceholder)
@@ -1066,6 +1067,34 @@ func (a *App) handleStop(w http.ResponseWriter, r *http.Request) {
 	a.mu.Unlock()
 	writeJSON(w, map[string]bool{"ok": true})
 }
+
+func (a *App) handleCancelProgramCooldown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	a.mu.Lock()
+	var err error
+	if a.programCooldownUntil.After(time.Now()) || a.status.DetectionPaused {
+		resume := a.status.DetectionPaused
+		a.programCooldownUntil = time.Time{}
+		a.cancelScheduledResumeLocked()
+		a.status.DetectionPaused = false
+		a.status.Matches, a.status.Misses = 0, 0
+		if resume {
+			a.status.Mode = "idle"
+			err = a.startMonitorLocked()
+		}
+	}
+	a.mu.Unlock()
+	if err != nil {
+		a.setError(err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
 func (a *App) handlePlaySender(w http.ResponseWriter, r *http.Request) {
 	if e := a.switchToSender(false); e != nil {
 		http.Error(w, e.Error(), 502)
@@ -1218,18 +1247,22 @@ func (a *App) handlePlaceholderImage(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) startMonitor() error {
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.startMonitorLocked()
+}
+
+// startMonitorLocked keeps manual cancellation and timer expiry atomic with
+// respect to stopping detection. The caller holds a.mu.
+func (a *App) startMonitorLocked() error {
 	if a.status.Running {
-		a.mu.Unlock()
 		return nil
 	}
 	active := a.active
 	if active.URL == "" {
-		a.mu.Unlock()
 		return errors.New("Kodi is not playing a known TV sender")
 	}
 	if a.cfg.PauseDetectionDuringProgramLock && a.programCooldownUntil.After(time.Now()) {
 		a.pauseMonitorUntilLocked(a.programCooldownUntil)
-		a.mu.Unlock()
 		return nil
 	}
 	a.cancelScheduledResumeLocked()
@@ -1244,7 +1277,6 @@ func (a *App) startMonitor() error {
 		a.status.Mode = "setup"
 	}
 	a.status.LastError = ""
-	a.mu.Unlock()
 	go a.monitor(ctx)
 	return nil
 }
@@ -1281,8 +1313,9 @@ func (a *App) pauseMonitorUntilLocked(until time.Time) {
 		}
 		a.resumeCancel = nil
 		a.status.DetectionPaused = false
+		err := a.startMonitorLocked()
 		a.mu.Unlock()
-		if err := a.startMonitor(); err != nil {
+		if err != nil {
 			a.setError(err)
 		}
 	}()

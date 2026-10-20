@@ -27,6 +27,8 @@ While the channel is playing, Kodi keeps one connection to the TV server and the
 
 The defaults check every two seconds and require three consecutive frames before each switch. Only after an automatically detected advertising break does a ten-minute program lock prevent another switch; it does not apply at service startup, when Kodi changes channel, or when the channel is changed manually. By default, the detector is stopped for this lock period to release its stream connection and save resources; it starts automatically when the lock ends. This can be disabled in “Detection & timing”. The placeholder remains visible for at least 30 seconds after switching. Both timings and the detection thresholds can be changed in the “Detection & timing” tab; `0` disables the respective lock. The status also shows the program or advertising duration since its respective detection.
 
+While the program protection period is active, the status page offers “End protection now”. This ends only the current period and immediately resumes detection if it was paused by that protection. Manually stopped detection stays stopped; the configured duration still applies after the next automatically detected advertising break.
+
 ## Image placeholder
 
 Under “Image placeholder”, you can upload a JPG, PNG, GIF, WebP, or BMP. The service serves it from a URL with the appropriate file extension and writes that URL as the placeholder URL. If Kodi runs on another device, that device must be able to reach the URL: for example, start the service with `-http-addr 0.0.0.0:8099` and, if necessary, replace `localhost` in the automatically set address with the monitor host's LAN IP address.

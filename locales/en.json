@@ -95,6 +95,7 @@
   "status.referencesHint": "Saved reference images: {count}",
   "status.manualNotice": "The placeholder stays on until you switch back to the channel or resume automation.",
   "status.cooldownNotice": "Protection for another {time}: playback will not switch to the placeholder during this time.",
+  "status.cancelCooldown": "End protection now",
   "status.minimumNotice": "The placeholder will stay on for at least another {time}.",
   "status.offlineHint": "The status could not be updated. Displayed values may be out of date. The connection will be checked again automatically.",
   "status.playSender": "Switch back to channel",

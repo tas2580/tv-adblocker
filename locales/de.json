@@ -95,6 +95,7 @@
   "status.referencesHint": "Gespeicherte Vergleichsbilder: {count}",
   "status.manualNotice": "Der Platzhalter bleibt eingeschaltet, bis du zum Sender zurückschaltest oder die Automatik fortsetzt.",
   "status.cooldownNotice": "Noch {time} Schutzzeit: In dieser Zeit wird nicht zum Platzhalter umgeschaltet.",
+  "status.cancelCooldown": "Schutzzeit jetzt beenden",
   "status.minimumNotice": "Der Platzhalter bleibt noch mindestens {time} eingeschaltet.",
   "status.offlineHint": "Der Status konnte nicht aktualisiert werden. Die angezeigten Werte sind möglicherweise veraltet. Die Verbindung wird automatisch erneut geprüft.",
   "status.playSender": "Zum Sender zurückschalten",

@@ -22,7 +22,7 @@ const indexHTML = `<!doctype html><html lang=""><meta charset="utf-8"><meta name
     </dl>
     <p id="status-notice" class="status-notice" hidden></p>
     <div id="status-errors" class="status-notice status-errors" role="status" hidden></div>
-    <div class="status-actions"><button id="detection-toggle" type="button" onclick="toggleDetection()" disabled data-i18n="status.startDetection"></button><button id="play-sender" class="secondary" type="button" hidden onclick="post('/api/play/sender')" data-i18n="status.playSender"></button><button id="play-placeholder" class="secondary" type="button" onclick="post('/api/play/placeholder')" disabled data-i18n="status.playPlaceholder"></button><button id="resume-automatic" class="secondary" type="button" hidden onclick="post('/api/resume-automatic')" data-i18n="status.resumeAutomatic"></button></div>
+    <div class="status-actions"><button id="detection-toggle" type="button" onclick="toggleDetection()" disabled data-i18n="status.startDetection"></button><button id="play-sender" class="secondary" type="button" hidden onclick="post('/api/play/sender')" data-i18n="status.playSender"></button><button id="play-placeholder" class="secondary" type="button" onclick="post('/api/play/placeholder')" disabled data-i18n="status.playPlaceholder"></button><button id="cancel-program-cooldown" class="secondary" type="button" hidden onclick="post('/api/cancel-program-cooldown')" data-i18n="status.cancelCooldown"></button><button id="resume-automatic" class="secondary" type="button" hidden onclick="post('/api/resume-automatic')" data-i18n="status.resumeAutomatic"></button></div>
     <details class="status-details"><summary data-i18n="status.details"></summary><div id="status" data-i18n="common.loading"></div></details>
   </div>
 </section>
@@ -211,6 +211,7 @@ function renderStatus(x){
   $('status-detection-hint').textContent=t(s.detection_paused?'status.pauseHint':!s.running?'status.stoppedHint':setup?'status.setupHint':'status.referencesHint',{count:x.reference_count||0});
   const notice=s.manual_placeholder?t('status.manualNotice'):s.program_cooldown_active?t('status.cooldownNotice',{time:formatSeconds(s.program_cooldown_remaining||0)}):s.placeholder_min_remaining?t('status.minimumNotice',{time:formatSeconds(s.placeholder_min_remaining)}):'';
   $('status-notice').textContent=notice;$('status-notice').hidden=!notice;
+  $('cancel-program-cooldown').hidden=!s.program_cooldown_active;
   renderStatusErrors(errors);
   $('detection-toggle').textContent=t(enabled?'status.stopDetection':'status.startDetection');
   document.querySelectorAll('.status-actions button').forEach(button=>button.disabled=false);
