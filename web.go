@@ -6,11 +6,12 @@ const indexHTML = `<!doctype html><html lang=""><meta charset="utf-8"><meta name
 <nav class="tabs" data-i18n-aria-label="tabs.label"><button class="tab active" type="button" data-tab="status" data-i18n="tabs.status"></button><button class="tab" type="button" data-tab="kodi" data-i18n="tabs.kodi"></button><button class="tab" type="button" data-tab="placeholder" data-i18n="tabs.placeholder"></button><button class="tab" type="button" data-tab="logos" data-i18n="tabs.logos"></button><button class="tab" type="button" data-tab="recognition" data-i18n="tabs.recognition"></button></nav>
 <style>
 [data-panel="status"]{padding:0;overflow:hidden}.status-topline{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.4rem 1.6rem;border-bottom:1px solid var(--border)}.status-topline h2{margin:0}.status-badge{display:inline-flex;align-items:center;gap:.5rem;border-radius:99px;background:var(--surface-alt);color:var(--muted);padding:.4rem .75rem;font-size:.8rem;font-weight:650}.status-badge:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}.status-badge[data-tone="good"]{background:#e7f6ef;color:#226444}.status-badge[data-tone="warm"]{background:#fff2d9;color:#80530b}.status-badge[data-tone="error"]{background:#fdeceb;color:#a32b31}.dark .status-badge[data-tone="good"]{background:#18392e;color:#99dfb9}.dark .status-badge[data-tone="warm"]{background:#3d311d;color:#f0cd88}.dark .status-badge[data-tone="error"]{background:#42232c;color:#ffb5b9}.status-hero{display:flex;align-items:center;gap:1.35rem;padding:2rem 1.6rem;background:linear-gradient(120deg,var(--surface-alt),var(--surface))}.status-icon{display:grid;place-items:center;flex:0 0 76px;height:76px;border:1px solid var(--border);border-radius:22px;color:var(--accent);background:var(--surface);box-shadow:var(--shadow)}.status-icon svg{width:36px;height:36px}.status-hero-copy{min-width:0}.status-eyebrow{color:var(--muted);font-size:.75rem;font-weight:650;letter-spacing:.1em;text-transform:uppercase;margin:0 0 .55rem}.status-hero h3{font-size:clamp(1.6rem,4vw,2.2rem);line-height:1.15;margin:0;overflow-wrap:anywhere}.status-description{margin:.6rem 0 0;color:var(--muted);line-height:1.6}.status-content{padding:0 1.6rem 1.5rem}.status-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem;margin:.2rem 0 1.4rem}.status-card{padding:1.1rem;border:1px solid var(--border);border-radius:12px;min-width:0}.status-card dt{font-size:.8rem;color:var(--muted);margin-bottom:.65rem}.status-card dd{margin:0;font-size:1.1rem;font-weight:650;line-height:1.4}.status-card dd.status-time{font-size:1.65rem;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.1}.status-card p{font-size:.8rem;color:var(--muted);line-height:1.5;margin:.5rem 0 0}.status-actions{display:flex;flex-wrap:wrap;gap:.5rem}.status-actions button{margin:0}.status-actions .secondary{background:var(--surface-alt);color:var(--text);border:1px solid var(--border)}.status-actions button:disabled{opacity:.5;cursor:wait}.status-notice{background:var(--surface-alt);border-left:3px solid var(--accent);border-radius:6px;padding:.8rem 1rem;margin:0 0 1rem;font-size:.9rem;line-height:1.6;overflow-wrap:anywhere}.status-errors{border-color:#d97706}.status-errors p{margin:0}.status-details{margin-top:1.4rem;padding-top:1rem;border-top:1px solid var(--border)}.status-details summary{cursor:pointer;color:var(--muted);font-size:.85rem;padding:.25rem 0;width:fit-content}.status-details #status{font-size:.8rem;overflow-wrap:anywhere;margin:1rem 0 0}button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}@media(max-width:600px){.app-header{align-items:flex-start;flex-direction:column;gap:.5rem}.app-header h1{font-size:1.55rem}.header-actions{width:100%}.header-actions .language-select{flex:1}.header-actions .theme-toggle{margin:0}.status-topline{padding:1rem;flex-wrap:wrap}.status-hero{padding:1.5rem 1rem;gap:1rem}.status-icon{flex-basis:54px;height:54px;border-radius:16px}.status-icon svg{width:28px;height:28px}.status-content{padding:0 1rem 1rem}.status-cards{grid-template-columns:1fr;gap:.6rem}.status-card{padding:.9rem 1rem}.status-card dt{margin-bottom:.35rem}.status-card dd.status-time{font-size:1.4rem}.status-actions button{flex:1 1 100%}}
+.status-icon img{width:100%;height:100%;min-height:0;object-fit:contain;padding:8px}.status-icon>[hidden]{display:none}
 </style>
 <section class="tab-panel active" data-panel="status">
   <div class="status-topline"><h2 data-i18n="status.heading"></h2><span id="status-badge" class="status-badge" role="status" data-i18n="common.loading"></span></div>
   <div class="status-hero">
-    <div class="status-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="26" height="18" rx="4"/><path d="M11 28h10M16 23v5M13 10l7 4-7 4z"/></svg></div>
+    <div id="status-channel-icon" class="status-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="26" height="18" rx="4"/><path d="M11 28h10M16 23v5M13 10l7 4-7 4z"/></svg></div>
     <div class="status-hero-copy"><p class="status-eyebrow" data-i18n="status.now"></p><h3 id="status-channel" data-i18n="common.loading"></h3><p id="status-description" class="status-description"></p></div>
   </div>
   <div class="status-content">
@@ -171,6 +172,21 @@ function setupUI(){document.querySelectorAll('.tab').forEach(tab=>tab.addEventLi
 function formatSeconds(seconds){let m=Math.floor(seconds/60),s=seconds%60;return m+':'+String(s).padStart(2,'0')}
 async function api(path,opt={}){opt.headers={...(opt.headers||{}),'Accept-Language':language};let r=await fetch(path,opt);if(!r.ok)throw Error(await r.text());return r.headers.get('content-type')?.includes('json')?r.json():r.text()}
 function modeName(mode){return t('status.mode.'+(mode||'ready'))}
+function renderChannelLogo(active){
+  const icon=$('status-channel-icon'),url=active.logo_url||'';
+  if(icon.dataset.logo===url)return;
+  icon.dataset.logo=url;
+  icon.querySelector('img')?.remove();
+  const fallback=icon.querySelector('svg');
+  fallback.removeAttribute('hidden');
+  if(!url)return;
+  const img=document.createElement('img');
+  img.alt='';img.hidden=true;img.decoding='async';img.referrerPolicy='no-referrer';
+  img.onload=()=>{if(img.parentNode!==icon)return;img.hidden=false;fallback.setAttribute('hidden','')};
+  img.onerror=()=>{if(img.parentNode!==icon)return;img.remove();fallback.removeAttribute('hidden')};
+  icon.append(img);
+  img.src=url;
+}
 function renderStatus(x){
   const s=x.status,active=x.active_channel||{},placeholder=['placeholder','manual-placeholder','switching-placeholder'].includes(s.mode),switching=s.mode?.startsWith('switching-'),enabled=s.running||s.detection_paused;
   const errors=[s.kodi_error?t('status.kodiError',{value:s.kodi_error}):'',s.last_error?t('status.error',{value:s.last_error}):'',s.playlist_error?t('status.playlistError',{value:s.playlist_error}):''].filter(Boolean);
@@ -178,6 +194,7 @@ function renderStatus(x){
   $('status-badge').textContent=t('status.state.'+state);
   $('status-badge').dataset.tone=errors.length?'error':state==='active'?'good':['manual','setup','paused'].includes(state)?'warm':'neutral';
   $('status-channel').textContent=active.name||t('status.waitingChannel');
+  renderChannelLogo(active);
   const description=errors.length?'attention':s.manual_placeholder?'manual':!active.url?'waiting':setup?'setup':!enabled?'stopped':switching?'switching':placeholder?'advert':s.detection_paused?'paused':'watching';
   $('status-description').textContent=t('status.description.'+description);
   $('status-playback').textContent=switching?modeName(s.mode):placeholder?t('status.placeholderPlaying'):active.url?t('status.channelPlaying'):t('status.noPlayback');

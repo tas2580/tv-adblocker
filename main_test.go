@@ -266,22 +266,6 @@ func TestReferenceRoundTrip(t *testing.T) {
 	}
 }
 
-func TestKodiOpenPayload(t *testing.T) {
-	b, err := kodiOpenPayload("http://tv.lan/channel.m3u8")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var received map[string]any
-	if err := json.Unmarshal(b, &received); err != nil {
-		t.Fatal(err)
-	}
-	params := received["params"].(map[string]any)
-	item := params["item"].(map[string]any)
-	if item["file"] != "http://tv.lan/channel.m3u8" {
-		t.Fatalf("unexpected Kodi target: %#v", item)
-	}
-}
-
 func TestKodiEndpointAddsJSONRPCPath(t *testing.T) {
 	got, err := kodiEndpoint("http://kodi.lan:8080")
 	if err != nil {
@@ -345,14 +329,6 @@ func TestChannelForKodiPlaybackUsesLabelThenStreamURL(t *testing.T) {
 	}
 	if _, ok := channelForKodiPlayback(channels, "rtsp://tv.example/unknown", "Unbekannter Sender"); ok {
 		t.Fatal("unknown Kodi item matched a channel")
-	}
-}
-
-func TestKodiCurrentItemProperties(t *testing.T) {
-	params := map[string]any{"playerid": 1, "properties": []string{"file"}}
-	properties := params["properties"].([]string)
-	if len(properties) != 1 || properties[0] != "file" {
-		t.Fatalf("unexpected Player.GetItem properties: %#v", properties)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -173,6 +174,7 @@ type App struct {
 	refMu                sync.Mutex
 	cfg                  Config
 	playlist             []Channel
+	kodiChannels         []KodiChannel
 	active               Channel
 	playlistUpdatedAt    time.Time
 	kodiSwitchUntil      time.Time
@@ -343,6 +345,10 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 	if n.Kodi.Password == "" {
 		n.Kodi.Password = a.cfg.Kodi.Password
 	}
+	if n.Kodi != a.cfg.Kodi {
+		a.kodiChannels = nil
+		a.active.KodiChannelID = nil
+	}
 	if a.cancel != nil {
 		a.cancel()
 		a.cancel = nil
@@ -360,6 +366,9 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 		_ = a.startMonitor()
 	}
 	go func() {
+		if err := a.refreshKodiChannels(); err != nil {
+			log.Printf("Kodi channels: %v", err)
+		}
 		if err := a.refreshPlaylist(); err == nil {
 			a.syncKodiPlayback()
 		}
@@ -368,8 +377,46 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 type Channel struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name          string `json:"name"`
+	URL           string `json:"url"`
+	LogoURL       string `json:"logo_url,omitempty"`
+	KodiChannelID *int   `json:"kodi_channel_id,omitempty"`
+}
+
+var playlistAttribute = regexp.MustCompile(`([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s,]+))`)
+
+func playlistMetadata(line string, base *url.URL) (name, logo string) {
+	// The separator is the first comma outside quotes; logo URLs and names
+	// can themselves contain commas.
+	var quote rune
+	for i, char := range line {
+		if quote != 0 {
+			if char == quote {
+				quote = 0
+			}
+		} else if char == '"' || char == '\'' {
+			quote = char
+		} else if char == ',' {
+			name = strings.TrimSpace(line[i+1:])
+			for _, attr := range playlistAttribute.FindAllStringSubmatch(line[:i], -1) {
+				if !strings.EqualFold(attr[1], "tvg-logo") {
+					continue
+				}
+				value := strings.TrimSpace(attr[2] + attr[3] + attr[4])
+				if value == "" {
+					continue
+				}
+				if parsed, err := url.Parse(value); err == nil {
+					resolved := base.ResolveReference(parsed)
+					if resolved.Scheme == "http" || resolved.Scheme == "https" {
+						logo = resolved.String()
+					}
+				}
+			}
+			break
+		}
+	}
+	return name, logo
 }
 
 func (a *App) handlePlaylist(w http.ResponseWriter, r *http.Request) {
@@ -395,16 +442,17 @@ func fetchPlaylist(client *http.Client, src string) ([]Channel, error) {
 	if e != nil {
 		return nil, e
 	}
+	if resp.Request != nil && resp.Request.URL != nil {
+		base = resp.Request.URL
+	}
 	sc := bufio.NewScanner(io.LimitReader(resp.Body, 8<<20))
 	sc.Buffer(make([]byte, 4096), 1<<20)
 	var ret []Channel
-	name := ""
+	name, logo := "", ""
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if strings.HasPrefix(line, "#EXTINF:") {
-			if i := strings.LastIndex(line, ","); i >= 0 {
-				name = strings.TrimSpace(line[i+1:])
-			}
+			name, logo = playlistMetadata(line, base)
 			continue
 		}
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -412,9 +460,9 @@ func fetchPlaylist(client *http.Client, src string) ([]Channel, error) {
 		}
 		u, e := url.Parse(line)
 		if e == nil {
-			ret = append(ret, Channel{name, base.ResolveReference(u).String()})
+			ret = append(ret, Channel{Name: name, URL: base.ResolveReference(u).String(), LogoURL: logo})
 		}
-		name = ""
+		name, logo = "", ""
 	}
 	return ret, sc.Err()
 }
@@ -433,6 +481,11 @@ func (a *App) refreshPlaylist() error {
 		return err
 	}
 	a.playlist = channels
+	if active, ok := channelForKodiPlayback(channels, a.active.URL, a.active.Name); ok {
+		a.active.LogoURL = active.LogoURL
+	} else {
+		a.active.LogoURL = ""
+	}
 	a.playlistUpdatedAt = time.Now()
 	a.status.PlaylistUpdatedAt = a.playlistUpdatedAt.Format(time.RFC3339)
 	a.status.PlaylistError = ""
@@ -446,10 +499,16 @@ func (a *App) automationLoop() {
 	if err := a.refreshPlaylist(); err != nil {
 		log.Printf("playlist: %v", err)
 	}
+	if err := a.refreshKodiChannels(); err != nil {
+		log.Printf("Kodi channels: %v", err)
+	}
 	a.syncKodiPlayback()
 	for {
 		select {
 		case <-playlistTicker.C:
+			if err := a.refreshKodiChannels(); err != nil {
+				log.Printf("Kodi channels: %v", err)
+			}
 			if err := a.refreshPlaylist(); err != nil {
 				log.Printf("playlist: %v", err)
 			}
@@ -459,7 +518,17 @@ func (a *App) automationLoop() {
 	}
 }
 func (a *App) syncKodiPlayback() {
-	file, label, active, err := a.kodiCurrentFile()
+	a.mu.RLock()
+	cfg := a.cfg
+	a.mu.RUnlock()
+	item, active, err := a.kodiCurrentItem(cfg.Kodi)
+	a.mu.RLock()
+	connectionChanged := a.cfg.Kodi != cfg.Kodi
+	a.mu.RUnlock()
+	if connectionChanged {
+		return
+	}
+	file, label := item.File, item.Label
 	if err != nil {
 		a.setKodiReadout("", "", err)
 		return
@@ -478,13 +547,13 @@ func (a *App) syncKodiPlayback() {
 		return
 	}
 	a.mu.RLock()
-	cfg := a.cfg
 	channels := append([]Channel(nil), a.playlist...)
+	kodiChannels := append([]KodiChannel(nil), a.kodiChannels...)
 	a.mu.RUnlock()
 	if isPlaceholderTarget(file, cfg) {
 		return // Keep monitoring the source while Kodi displays our own placeholder.
 	}
-	if channel, ok := channelForKodiPlayback(channels, file, label); ok {
+	if channel, ok := channelForKodiItem(channels, kodiChannels, item); ok {
 		a.confirmAutomaticReturn(channel)
 		a.setActiveChannel(channel)
 		return
@@ -499,18 +568,26 @@ func (a *App) syncKodiPlayback() {
 // normally preserves the M3U label, but Player.Open can return only a file
 // name or an empty label. The stream URL is a safe fallback in that case.
 func channelForKodiPlayback(channels []Channel, kodiFile, kodiLabel string) (Channel, bool) {
+	var matches []Channel
 	for _, channel := range channels {
 		if sameChannelName(kodiLabel, channel.Name) {
-			return channel, true
+			matches = append(matches, channel)
 		}
+	}
+	if len(matches) == 1 {
+		return matches[0], true
 	}
 	if kodiFile == "" {
 		return Channel{}, false
 	}
+	matches = nil
 	for _, channel := range channels {
 		if channel.URL != "" && sameStreamURL(kodiFile, channel.URL) {
-			return channel, true
+			matches = append(matches, channel)
 		}
+	}
+	if len(matches) == 1 {
+		return matches[0], true
 	}
 	return Channel{}, false
 }
@@ -581,17 +658,17 @@ func normalizeChannelName(name string) string {
 	return normalized.String()
 }
 
-func (a *App) kodiCurrentFile() (string, string, bool, error) {
-	result, _, err := a.kodiCall("Player.GetActivePlayers", nil)
+func (a *App) kodiCurrentItem(cfg KodiConfig) (KodiItem, bool, error) {
+	result, _, err := a.kodiCallWithConfig(cfg, "Player.GetActivePlayers", nil)
 	if err != nil {
-		return "", "", false, err
+		return KodiItem{}, false, err
 	}
 	var players []map[string]any
 	if err := json.Unmarshal(result, &players); err != nil {
-		return "", "", false, err
+		return KodiItem{}, false, err
 	}
 	if len(players) == 0 {
-		return "", "", false, nil
+		return KodiItem{}, false, nil
 	}
 	var playerID int
 	found := false
@@ -609,33 +686,37 @@ func (a *App) kodiCurrentFile() (string, string, bool, error) {
 		}
 	}
 	if !found {
-		return "", "", false, errors.New("Kodi returned no usable active player")
+		return KodiItem{}, false, errors.New("Kodi returned no usable active player")
 	}
-	// "label" is included by Kodi in every item response, but it is not a
-	// valid Item.Fields.Base property to request explicitly.
-	itemResult, _, err := a.kodiCall("Player.GetItem", map[string]any{"playerid": playerID, "properties": []string{"file"}})
+	// Kodi supplies label, type and id without requesting them as properties.
+	itemResult, _, err := a.kodiCallWithConfig(cfg, "Player.GetItem", map[string]any{"playerid": playerID, "properties": []string{"file"}})
 	if err != nil {
-		return "", "", false, err
+		return KodiItem{}, false, err
 	}
-	var response map[string]any
+	var response struct {
+		Item *KodiItem `json:"item"`
+	}
 	if err := json.Unmarshal(itemResult, &response); err != nil {
-		return "", "", false, err
+		return KodiItem{}, false, err
 	}
-	item, ok := response["item"].(map[string]any)
-	if !ok {
-		return "", "", false, errors.New("Kodi returned no active item")
+	if response.Item == nil {
+		return KodiItem{}, false, errors.New("Kodi returned no active item")
 	}
-	file, _ := item["file"].(string)
-	label, _ := item["label"].(string)
-	return file, label, file != "" || label != "", nil
+	item := *response.Item
+	return item, item.File != "" || item.Label != "" || item.channelID() != nil, nil
 }
 func (a *App) setActiveChannel(channel Channel) {
-	a.mu.RLock()
-	current := a.active
-	a.mu.RUnlock()
-	if sameActiveChannel(current, channel) {
+	a.mu.Lock()
+	if sameActiveChannel(a.active, channel) {
+		// Enrich the sender without resetting detection or phase timers.
+		a.active.LogoURL = channel.LogoURL
+		if channel.KodiChannelID != nil {
+			a.active.KodiChannelID = channel.KodiChannelID
+		}
+		a.mu.Unlock()
 		return
 	}
+	a.mu.Unlock()
 	a.suspendMonitor()
 	a.mu.Lock()
 	a.cancelScheduledResumeLocked()
@@ -661,6 +742,9 @@ func (a *App) setActiveChannel(channel Channel) {
 // The M3U/Kodi sender name is the stable identity; stream URLs can be
 // rewritten by Kodi or the TV server between two polling requests.
 func sameActiveChannel(a, b Channel) bool {
+	if a.KodiChannelID != nil && b.KodiChannelID != nil {
+		return *a.KodiChannelID == *b.KodiChannelID
+	}
 	if a.Name == "" && b.Name == "" && a.URL == "" && b.URL == "" {
 		return true
 	}
@@ -1422,6 +1506,9 @@ func (a *App) play(which string, knownPhaseStart bool) error {
 	a.mu.RLock()
 	cfg := a.cfg
 	active := a.active
+	if which == "sender" && active.KodiChannelID == nil {
+		active.KodiChannelID = uniqueKodiChannelID(a.kodiChannels, active.Name)
+	}
 	a.mu.RUnlock()
 	target := active.URL
 	if which == "placeholder" {
@@ -1433,38 +1520,26 @@ func (a *App) play(which string, knownPhaseStart bool) error {
 	if cfg.Kodi.URL == "" {
 		return errors.New("Kodi JSON-RPC URL is not configured")
 	}
-	if err := a.clearKodiPlaylists(); err != nil {
+	if err := a.clearKodiPlaylists(cfg.Kodi); err != nil {
 		return fmt.Errorf("clear Kodi playlists: %w", err)
 	}
-	endpoint, e := kodiEndpoint(cfg.Kodi.URL)
-	if e != nil {
-		return e
+	item := map[string]any{"file": target}
+	if which == "sender" {
+		channelID := active.KodiChannelID
+		if channelID != nil {
+			item = map[string]any{"channelid": *channelID}
+		} else {
+			log.Printf("Kodi sender %q: no unique channel ID; falling back to stream URL", active.Name)
+		}
 	}
-	b, _ := kodiOpenPayload(target)
-	req, e := http.NewRequest("POST", endpoint, bytes.NewReader(b))
-	if e != nil {
-		return e
+	_, _, err := a.kodiCallWithConfig(cfg.Kodi, "Player.Open", map[string]any{"item": item})
+	var rpcErr *kodiRPCError
+	if _, byID := item["channelid"]; byID && errors.As(err, &rpcErr) {
+		log.Printf("Kodi sender %q: %v; falling back to stream URL", active.Name, err)
+		_, _, err = a.kodiCallWithConfig(cfg.Kodi, "Player.Open", map[string]any{"item": map[string]string{"file": target}})
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if cfg.Kodi.Username != "" {
-		req.SetBasicAuth(cfg.Kodi.Username, cfg.Kodi.Password)
-	}
-	resp, e := a.httpClient.Do(req)
-	if e != nil {
-		return e
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("Kodi returned %s", resp.Status)
-	}
-	var reply struct {
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if json.Unmarshal(body, &reply) == nil && reply.Error != nil {
-		return errors.New(reply.Error.Message)
+	if err != nil {
+		return err
 	}
 	a.recordPlayback(which, cfg, knownPhaseStart)
 	return nil
@@ -1531,9 +1606,6 @@ func isPlaceholderTarget(file string, cfg Config) bool {
 	return false
 }
 
-func kodiOpenPayload(target string) ([]byte, error) {
-	return json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "Player.Open", "params": map[string]any{"item": map[string]string{"file": target}}})
-}
 func kodiEndpoint(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme == "" || u.Host == "" {
@@ -1546,12 +1618,16 @@ func kodiEndpoint(raw string) (string, error) {
 }
 func (a *App) kodiCall(method string, params any) ([]byte, string, error) {
 	a.mu.RLock()
-	cfg := a.cfg
+	cfg := a.cfg.Kodi
 	a.mu.RUnlock()
-	if cfg.Kodi.URL == "" {
+	return a.kodiCallWithConfig(cfg, method, params)
+}
+
+func (a *App) kodiCallWithConfig(cfg KodiConfig, method string, params any) ([]byte, string, error) {
+	if cfg.URL == "" {
 		return nil, "", errors.New("Kodi JSON-RPC URL is not configured")
 	}
-	endpoint, err := kodiEndpoint(cfg.Kodi.URL)
+	endpoint, err := kodiEndpoint(cfg.URL)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1568,15 +1644,18 @@ func (a *App) kodiCall(method string, params any) ([]byte, string, error) {
 		return nil, endpoint, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if cfg.Kodi.Username != "" {
-		req.SetBasicAuth(cfg.Kodi.Username, cfg.Kodi.Password)
+	if cfg.Username != "" {
+		req.SetBasicAuth(cfg.Username, cfg.Password)
 	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return nil, endpoint, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, endpoint, err
+	}
 	if resp.StatusCode/100 != 2 {
 		return nil, endpoint, fmt.Errorf("Kodi returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
@@ -1585,7 +1664,7 @@ func (a *App) kodiCall(method string, params any) ([]byte, string, error) {
 		return nil, endpoint, fmt.Errorf("invalid Kodi response: %w", err)
 	}
 	if rpcErr, ok := reply["error"]; ok {
-		return nil, endpoint, fmt.Errorf("Kodi RPC error: %s", rpcErr)
+		return nil, endpoint, &kodiRPCError{Message: string(rpcErr)}
 	}
 	result, ok := reply["result"]
 	if !ok {
@@ -1593,8 +1672,8 @@ func (a *App) kodiCall(method string, params any) ([]byte, string, error) {
 	}
 	return result, endpoint, nil
 }
-func (a *App) clearKodiPlaylists() error {
-	result, _, err := a.kodiCall("Playlist.GetPlaylists", nil)
+func (a *App) clearKodiPlaylists(cfg KodiConfig) error {
+	result, _, err := a.kodiCallWithConfig(cfg, "Playlist.GetPlaylists", nil)
 	if err != nil {
 		return err
 	}
@@ -1607,7 +1686,7 @@ func (a *App) clearKodiPlaylists() error {
 		if !ok {
 			continue
 		}
-		if _, _, err := a.kodiCall("Playlist.Clear", map[string]int{"playlistid": int(id)}); err != nil {
+		if _, _, err := a.kodiCallWithConfig(cfg, "Playlist.Clear", map[string]int{"playlistid": int(id)}); err != nil {
 			return err
 		}
 	}
