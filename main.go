@@ -191,6 +191,8 @@ type App struct {
 	cancel               context.CancelFunc
 	resumeCancel         context.CancelFunc
 	resumeID             uint64
+	previewClients       map[string]time.Time
+	previewTimer         *time.Timer
 	httpClient           *http.Client
 }
 
@@ -245,6 +247,7 @@ func (a *App) routes(m *http.ServeMux) {
 	m.HandleFunc("/api/config", a.handleConfig)
 	m.HandleFunc("/api/playlist", a.handlePlaylist)
 	m.HandleFunc("/api/frame.bmp", a.handleFrame)
+	m.HandleFunc("/api/preview", a.handlePreviewSession)
 	m.HandleFunc("/api/optimize-rect", a.handleOptimizeRect)
 	m.HandleFunc("/api/reference", a.handleReference)
 	m.HandleFunc("/api/references", a.handleReferences)
@@ -343,7 +346,7 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	n.normalize()
 	a.mu.Lock()
-	running := a.status.Running || a.status.DetectionPaused
+	running := a.status.Running || a.status.DetectionPaused || a.cancel != nil
 	if n.Kodi.Password == "" {
 		n.Kodi.Password = a.cfg.Kodi.Password
 	}
@@ -731,6 +734,9 @@ func (a *App) setActiveChannel(channel Channel) {
 	a.status.Matches, a.status.Misses = 0, 0
 	a.status.LogoPresent = nil
 	a.status.Similarity = 0
+	a.lastFrame = Frame{}
+	a.previewFrame = Frame{}
+	a.status.LastFrame = ""
 	a.status.ManualPlaceholder = false
 	a.programCooldownUntil = time.Time{}
 	a.placeholderMinUntil = time.Time{}
@@ -759,7 +765,21 @@ func sameActiveChannel(a, b Channel) bool {
 func (a *App) handleFrame(w http.ResponseWriter, r *http.Request) {
 	a.mu.RLock()
 	f := a.lastFrame.clone()
+	active := a.active
+	running := a.status.Running || a.cancel != nil
 	a.mu.RUnlock()
+	if !running {
+		if active.URL == "" {
+			http.Error(w, "Kodi is not playing a known TV sender", http.StatusConflict)
+			return
+		}
+		var err error
+		f, err = captureFrame(r.Context(), active.URL)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
 	if len(f.Pix) == 0 {
 		http.Error(w, "no frame received yet", 404)
 		return
@@ -767,10 +787,55 @@ func (a *App) handleFrame(w http.ResponseWriter, r *http.Request) {
 	// Keep the exact frame that is sent to the browser. Saving a reference
 	// must not race with a later frame received by the monitor.
 	a.mu.Lock()
+	if a.active.URL != active.URL {
+		a.mu.Unlock()
+		http.Error(w, "channel changed while loading preview", http.StatusConflict)
+		return
+	}
 	a.previewFrame = f.clone()
 	a.mu.Unlock()
 	w.Header().Set("Content-Type", "image/bmp")
 	_, _ = w.Write(encodeBMP(f))
+}
+
+// A preview needs only one frame; release its stream connection immediately.
+func captureFrame(parent context.Context, streamURL string) (Frame, error) {
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
+	defer cancel()
+	// Keep probing short for a single image. Some streams need more data to
+	// identify their video track, so retain the normal probe as a fallback.
+	fastCtx, fastCancel := context.WithTimeout(ctx, 5*time.Second)
+	frame, err := captureFrameAttempt(fastCtx, streamURL, true)
+	fastCancel()
+	if err == nil {
+		return frame, nil
+	}
+	if ctx.Err() != nil {
+		return Frame{}, ctx.Err()
+	}
+	return captureFrameAttempt(ctx, streamURL, false)
+}
+
+func captureFrameAttempt(ctx context.Context, streamURL string, fast bool) (Frame, error) {
+	filter := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2", frameWidth, frameHeight, frameWidth, frameHeight)
+	args := []string{"-hide_banner", "-loglevel", "error"}
+	if fast {
+		args = append(args, "-analyzeduration", "500000", "-probesize", "262144", "-fpsprobesize", "0")
+	}
+	// Frame threading buffers additional frames before delivering the first
+	// decoded image. A single decoding thread avoids that startup delay.
+	args = append(args, "-threads", "1", "-i", streamURL, "-an", "-vf", filter, "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1")
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	pix, err := cmd.Output()
+	if err != nil {
+		return Frame{}, fmt.Errorf("ffmpeg preview: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	if len(pix) != frameWidth*frameHeight*3 {
+		return Frame{}, errors.New("ffmpeg preview: incomplete frame")
+	}
+	return Frame{frameWidth, frameHeight, pix}, nil
 }
 
 // handleOptimizeRect trims only low-detail outer rows and columns from a
@@ -831,7 +896,7 @@ func (a *App) handleReference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.mu.Lock()
-	restart := a.status.Running
+	restart := a.status.Running || a.status.Mode == "setup"
 	if restart && a.cancel != nil {
 		a.cancel()
 		a.cancel = nil
@@ -924,7 +989,9 @@ func (a *App) referencesFor(streamURL string) ([]ReferenceEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	var entries []ReferenceEntry
+	// Keep the API representation consistent: an empty reference collection is
+	// an empty JSON array, never null.
+	entries := make([]ReferenceEntry, 0)
 	for _, entry := range index.References {
 		if entry.StreamURL == streamURL {
 			entries = append(entries, entry)
@@ -1013,7 +1080,7 @@ func (a *App) handleReferenceItem(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.RLock()
 	streamURL := a.active.URL
-	running := a.status.Running
+	running := a.status.Running || a.status.DetectionPaused
 	a.mu.RUnlock()
 	if err := a.removeReference(part, streamURL); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -1064,6 +1131,9 @@ func (a *App) handleStop(w http.ResponseWriter, r *http.Request) {
 	a.cancelScheduledResumeLocked()
 	a.status.Running = false
 	a.status.DetectionPaused = false
+	if a.status.Mode == "setup" {
+		a.status.Mode = "idle"
+	}
 	a.mu.Unlock()
 	writeJSON(w, map[string]bool{"ok": true})
 }
@@ -1261,6 +1331,31 @@ func (a *App) startMonitorLocked() error {
 	if active.URL == "" {
 		return errors.New("Kodi is not playing a known TV sender")
 	}
+	refs, err := a.referencesFor(active.URL)
+	if err != nil {
+		return err
+	}
+	if len(refs) == 0 {
+		a.cancelScheduledResumeLocked()
+		a.status.DetectionPaused = false
+		a.status.Mode = "setup"
+		a.status.LogoPresent = nil
+		a.status.Similarity = 0
+		a.status.Matches, a.status.Misses = 0, 0
+		a.status.LastError = ""
+		if a.hasPreviewClientsLocked(time.Now()) && a.cancel == nil {
+			ctx, cancel := context.WithCancel(context.Background())
+			a.cancel = cancel
+			a.lastFrame = Frame{}
+			go a.monitor(ctx)
+		}
+		return nil
+	}
+	// Replace a preview-only decoder when the first reference is saved.
+	if a.cancel != nil {
+		a.cancel()
+		a.cancel = nil
+	}
 	if a.cfg.PauseDetectionDuringProgramLock && a.programCooldownUntil.After(time.Now()) {
 		a.pauseMonitorUntilLocked(a.programCooldownUntil)
 		return nil
@@ -1270,12 +1365,7 @@ func (a *App) startMonitorLocked() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel = cancel
 	a.status.Running = true
-	refs, _ := a.referencesFor(active.URL)
-	if len(refs) > 0 {
-		a.status.Mode = "monitoring"
-	} else {
-		a.status.Mode = "setup"
-	}
+	a.status.Mode = "monitoring"
 	a.status.LastError = ""
 	go a.monitor(ctx)
 	return nil
@@ -1331,12 +1421,14 @@ func (a *App) cancelScheduledResumeLocked() {
 	a.resumeID++
 }
 func (a *App) monitor(ctx context.Context) {
+	fastPreview := true
 	for {
-		e := a.monitorOnce(ctx)
+		e := a.monitorStream(ctx, fastPreview)
 		if e == nil || ctx.Err() != nil {
 			return
 		}
 		a.setError(e)
+		fastPreview = false // Retry streams needing the full input probe.
 		select {
 		case <-ctx.Done():
 			return
@@ -1345,9 +1437,16 @@ func (a *App) monitor(ctx context.Context) {
 	}
 }
 func (a *App) monitorOnce(ctx context.Context) error {
+	return a.monitorStream(ctx, true)
+}
+
+func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
 	a.mu.RLock()
 	cfg := a.cfg
 	active := a.active
+	preview := a.hasPreviewClientsLocked(time.Now())
 	a.mu.RUnlock()
 	if active.URL == "" {
 		return nil
@@ -1356,6 +1455,10 @@ func (a *App) monitorOnce(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	if len(entries) == 0 && !preview {
+		return nil
+	}
+	setup := len(entries) == 0
 	type loadedReference struct {
 		frame Frame
 		rect  Rect
@@ -1368,9 +1471,17 @@ func (a *App) monitorOnce(ctx context.Context) error {
 		}
 		refs = append(refs, loadedReference{frame: ref, rect: entry.Rect})
 	}
-	setup := len(refs) == 0
 	filter := fmt.Sprintf("fps=1/%d,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2", cfg.IntervalSeconds, frameWidth, frameHeight, frameWidth, frameHeight)
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", active.URL, "-an", "-vf", filter, "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1")
+	args := []string{"-hide_banner", "-loglevel", "error"}
+	if setup {
+		if fastPreview {
+			args = append(args, "-analyzeduration", "500000", "-probesize", "262144", "-fpsprobesize", "0")
+		}
+		args = append(args, "-threads", "1")
+		filter = fmt.Sprintf("fps=2,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2", frameWidth, frameHeight, frameWidth, frameHeight)
+	}
+	args = append(args, "-i", active.URL, "-an", "-vf", filter, "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1")
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	out, e := cmd.StdoutPipe()
 	if e != nil {
 		return e
@@ -1380,6 +1491,12 @@ func (a *App) monitorOnce(ctx context.Context) error {
 	if e = cmd.Start(); e != nil {
 		return e
 	}
+	defer func() {
+		cancel()
+		if cmd.ProcessState == nil {
+			_ = cmd.Wait()
+		}
+	}()
 	rd := bufio.NewReaderSize(out, 3<<20)
 	for {
 		pix := make([]byte, frameWidth*frameHeight*3)
@@ -1396,8 +1513,15 @@ func (a *App) monitorOnce(ctx context.Context) error {
 		}
 		f := Frame{frameWidth, frameHeight, pix}
 		a.mu.Lock()
+		if ctx.Err() != nil || a.active.URL != active.URL {
+			a.mu.Unlock()
+			return nil
+		}
 		a.lastFrame = f
 		a.status.LastFrame = time.Now().Format(time.RFC3339)
+		if setup {
+			a.status.LastError = ""
+		}
 		a.mu.Unlock()
 		if setup {
 			continue
@@ -1485,7 +1609,7 @@ func (a *App) observe(present bool, score float64, cfg Config) {
 }
 func (a *App) suspendMonitor() bool {
 	a.mu.Lock()
-	wasRunning := a.status.Running
+	wasRunning := a.status.Running || a.cancel != nil
 	if a.cancel != nil {
 		a.cancel()
 		a.cancel = nil

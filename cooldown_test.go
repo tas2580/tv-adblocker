@@ -21,6 +21,7 @@ func TestCancelProgramCooldown(t *testing.T) {
 				programCooldownUntil: time.Now().Add(5 * time.Minute),
 				programStartedAt:     started,
 			}
+			addTestReference(t, a, "test", a.active.URL)
 			t.Cleanup(func() {
 				a.handleStop(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/stop", nil))
 			})

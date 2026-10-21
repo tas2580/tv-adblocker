@@ -17,6 +17,18 @@ func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
 }
 
+func TestEmptyReferencesAreJSONArray(t *testing.T) {
+	a := &App{dataDir: t.TempDir()}
+	w := httptest.NewRecorder()
+	a.handleReferences(w, httptest.NewRequest(http.MethodGet, "/api/references", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	if got := bytes.TrimSpace(w.Body.Bytes()); string(got) != "[]" {
+		t.Fatalf("references = %s, want []", got)
+	}
+}
+
 func TestCompareLogo(t *testing.T) {
 	frame := Frame{100, 100, make([]byte, 30000)}
 	for y := 20; y < 40; y++ {
@@ -414,11 +426,13 @@ func TestObserveHonorsProgramCooldown(t *testing.T) {
 
 func TestStartMonitorPausesDuringProgramCooldown(t *testing.T) {
 	a := &App{
+		dataDir:              t.TempDir(),
 		cfg:                  Config{PauseDetectionDuringProgramLock: true},
 		active:               Channel{Name: "Test", URL: "http://tv.example/test.m3u8"},
 		status:               Status{Mode: "monitoring"},
 		programCooldownUntil: time.Now().Add(time.Minute),
 	}
+	addTestReference(t, a, "test", a.active.URL)
 	if err := a.startMonitor(); err != nil {
 		t.Fatal(err)
 	}
