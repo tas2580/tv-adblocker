@@ -130,30 +130,32 @@ func containsPlaceholder(values []string, target string) bool {
 }
 
 type Status struct {
-	Running                  bool    `json:"running"`
-	Mode                     string  `json:"mode"`
-	ActiveChannel            string  `json:"active_channel,omitempty"`
-	PlaylistUpdatedAt        string  `json:"playlist_updated_at,omitempty"`
-	PlaylistError            string  `json:"playlist_error,omitempty"`
-	KodiFile                 string  `json:"kodi_file,omitempty"`
-	KodiLabel                string  `json:"kodi_label,omitempty"`
-	KodiProgramme            string  `json:"kodi_programme,omitempty"`
-	KodiError                string  `json:"kodi_error,omitempty"`
-	LogoPresent              *bool   `json:"logo_present,omitempty"`
-	Similarity               float64 `json:"similarity"`
-	LastFrame                string  `json:"last_frame,omitempty"`
-	LastError                string  `json:"last_error,omitempty"`
-	Misses                   int     `json:"misses"`
-	Matches                  int     `json:"matches"`
-	ManualPlaceholder        bool    `json:"manual_placeholder"`
-	ProgramCooldownRemaining int     `json:"program_cooldown_remaining"`
-	PlaceholderMinRemaining  int     `json:"placeholder_min_remaining"`
-	ProgramCooldownActive    bool    `json:"program_cooldown_active"`
-	DetectionPaused          bool    `json:"detection_paused"`
-	ProgramElapsedSeconds    int     `json:"program_elapsed_seconds"`
-	AdvertElapsedSeconds     int     `json:"advert_elapsed_seconds"`
+	LogoDetection            *LogoResult `json:"logo_detection,omitempty"`
+	Running                  bool        `json:"running"`
+	Mode                     string      `json:"mode"`
+	ActiveChannel            string      `json:"active_channel,omitempty"`
+	PlaylistUpdatedAt        string      `json:"playlist_updated_at,omitempty"`
+	PlaylistError            string      `json:"playlist_error,omitempty"`
+	KodiFile                 string      `json:"kodi_file,omitempty"`
+	KodiLabel                string      `json:"kodi_label,omitempty"`
+	KodiProgramme            string      `json:"kodi_programme,omitempty"`
+	KodiError                string      `json:"kodi_error,omitempty"`
+	LogoPresent              *bool       `json:"logo_present,omitempty"`
+	Similarity               float64     `json:"similarity"`
+	LastFrame                string      `json:"last_frame,omitempty"`
+	LastError                string      `json:"last_error,omitempty"`
+	Misses                   int         `json:"misses"`
+	Matches                  int         `json:"matches"`
+	ManualPlaceholder        bool        `json:"manual_placeholder"`
+	ProgramCooldownRemaining int         `json:"program_cooldown_remaining"`
+	PlaceholderMinRemaining  int         `json:"placeholder_min_remaining"`
+	ProgramCooldownActive    bool        `json:"program_cooldown_active"`
+	DetectionPaused          bool        `json:"detection_paused"`
+	ProgramElapsedSeconds    int         `json:"program_elapsed_seconds"`
+	AdvertElapsedSeconds     int         `json:"advert_elapsed_seconds"`
 }
 type ReferenceEntry struct {
+	MaskSource string `json:"mask_source,omitempty"`
 	ID         string `json:"id"`
 	StreamURL  string `json:"stream_url"`
 	StreamName string `json:"stream_name"`
@@ -171,29 +173,32 @@ type Frame struct {
 func (f Frame) clone() Frame { return Frame{f.W, f.H, append([]byte(nil), f.Pix...)} }
 
 type App struct {
-	mu                   sync.RWMutex
-	refMu                sync.Mutex
-	cfg                  Config
-	playlist             []Channel
-	kodiChannels         []KodiChannel
-	active               Channel
-	playlistUpdatedAt    time.Time
-	kodiSwitchUntil      time.Time
-	automaticReturnUntil time.Time
-	programCooldownUntil time.Time
-	placeholderMinUntil  time.Time
-	programStartedAt     time.Time
-	advertStartedAt      time.Time
-	configPath, dataDir  string
-	status               Status
-	lastFrame            Frame
-	previewFrame         Frame
-	cancel               context.CancelFunc
-	resumeCancel         context.CancelFunc
-	resumeID             uint64
-	previewClients       map[string]time.Time
-	previewTimer         *time.Timer
-	httpClient           *http.Client
+	logoCapture           *logoCapture
+	logoDiagnostic        *logoDiagnostic
+	logoDiagnosticHistory []*logoDiagnostic
+	mu                    sync.RWMutex
+	refMu                 sync.Mutex
+	cfg                   Config
+	playlist              []Channel
+	kodiChannels          []KodiChannel
+	active                Channel
+	playlistUpdatedAt     time.Time
+	kodiSwitchUntil       time.Time
+	automaticReturnUntil  time.Time
+	programCooldownUntil  time.Time
+	placeholderMinUntil   time.Time
+	programStartedAt      time.Time
+	advertStartedAt       time.Time
+	configPath, dataDir   string
+	status                Status
+	lastFrame             Frame
+	previewFrame          Frame
+	cancel                context.CancelFunc
+	resumeCancel          context.CancelFunc
+	resumeID              uint64
+	previewClients        map[string]time.Time
+	previewTimer          *time.Timer
+	httpClient            *http.Client
 }
 
 func main() {
@@ -252,6 +257,9 @@ func (a *App) routes(m *http.ServeMux) {
 	m.HandleFunc("/api/reference", a.handleReference)
 	m.HandleFunc("/api/references", a.handleReferences)
 	m.HandleFunc("/api/references/", a.handleReferenceItem)
+	m.HandleFunc("/api/logo-capture", a.handleLogoCapture)
+	m.HandleFunc("/api/logo-mask", a.handleLogoMask)
+	m.HandleFunc("/api/logo-diagnostic", a.handleLogoDiagnostic)
 	m.HandleFunc("/api/start", a.handleStart)
 	m.HandleFunc("/api/stop", a.handleStop)
 	m.HandleFunc("/api/play/sender", a.handlePlaySender)
@@ -733,6 +741,12 @@ func (a *App) setActiveChannel(channel Channel) {
 	a.status.KodiProgramme = ""
 	a.status.Matches, a.status.Misses = 0, 0
 	a.status.LogoPresent = nil
+	a.status.LogoDetection = nil
+	a.logoDiagnostic = nil
+	a.logoDiagnosticHistory = nil
+	if c := a.logoCapture; c != nil {
+		c.State, c.Error, c.frames = "error", "capture.channelChanged", nil
+	}
 	a.status.Similarity = 0
 	a.lastFrame = Frame{}
 	a.previewFrame = Frame{}
@@ -885,26 +899,29 @@ func (a *App) handleReference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry := ReferenceEntry{
+		MaskSource: "single",
 		ID:         fmt.Sprintf("%x", time.Now().UnixNano()),
 		StreamURL:  active.URL,
 		StreamName: active.Name,
 		Rect:       rect,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 	}
-	if e := a.addReference(entry, cropFrame(f, rect)); e != nil {
+	cropped := cropFrame(f, rect)
+	a.mu.Lock()
+	if a.active.URL != active.URL {
+		a.mu.Unlock()
+		http.Error(w, "channel changed while saving reference", http.StatusConflict)
+		return
+	}
+	if e := a.addMaskedReference(entry, cropped, automaticLogoMask(cropped)); e != nil {
+		a.mu.Unlock()
 		http.Error(w, e.Error(), 500)
 		return
 	}
-	a.mu.Lock()
 	restart := a.status.Running || a.status.Mode == "setup"
-	if restart && a.cancel != nil {
-		a.cancel()
-		a.cancel = nil
-		a.status.Running = false
-	}
 	a.mu.Unlock()
 	if restart {
-		_ = a.startMonitor()
+		a.restartMonitor()
 	}
 	writeJSON(w, entry)
 }
@@ -1039,6 +1056,12 @@ func (a *App) removeReference(id, streamURL string) error {
 	if err := os.Remove(a.referenceFile(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if err := os.Remove(a.maskFile(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Remove(a.automaticMaskFile(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return nil
 }
 func (a *App) handleReferences(w http.ResponseWriter, r *http.Request) {
@@ -1097,6 +1120,8 @@ func (a *App) handleReferenceItem(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) restartMonitor() {
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	mode := a.status.Mode
 	if a.cancel != nil {
 		a.cancel()
 		a.cancel = nil
@@ -1104,8 +1129,11 @@ func (a *App) restartMonitor() {
 	a.cancelScheduledResumeLocked()
 	a.status.Running = false
 	a.status.DetectionPaused = false
-	a.mu.Unlock()
-	_ = a.startMonitor()
+	a.status.Matches, a.status.Misses = 0, 0
+	_ = a.startMonitorLocked()
+	if a.status.Running && (mode == "placeholder" || mode == "manual-placeholder" || mode == "sender") {
+		a.status.Mode = mode
+	}
 }
 func (a *App) handleStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1447,6 +1475,7 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 	cfg := a.cfg
 	active := a.active
 	preview := a.hasPreviewClientsLocked(time.Now())
+	detect := a.status.Running
 	a.mu.RUnlock()
 	if active.URL == "" {
 		return nil
@@ -1458,18 +1487,23 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 	if len(entries) == 0 && !preview {
 		return nil
 	}
-	setup := len(entries) == 0
-	type loadedReference struct {
-		frame Frame
-		rect  Rect
-	}
-	refs := make([]loadedReference, 0, len(entries))
+	setup := len(entries) == 0 || !detect
+	refs := make([]*logoTemplate, 0, len(entries))
 	for _, entry := range entries {
 		ref, err := loadReference(a.referenceFile(entry.ID))
 		if err != nil {
 			return fmt.Errorf("read reference %s: %w", entry.ID, err)
 		}
-		refs = append(refs, loadedReference{frame: ref, rect: entry.Rect})
+		mask, err := a.loadLogoMask(entry.ID, ref)
+		if err != nil {
+			return fmt.Errorf("read mask %s: %w", entry.ID, err)
+		}
+		prepared := prepareLogo(entry.ID, ref, entry.Rect, mask)
+		if _, err := os.Stat(a.maskFile(entry.ID)); errors.Is(err, os.ErrNotExist) {
+			prepared = prepareLogo(entry.ID, contrastLogoFrame(ref, cfg.ContrastStrength), entry.Rect, mask)
+			prepared.frame, prepared.legacyContrast = ref, cfg.ContrastStrength
+		}
+		refs = append(refs, prepared)
 	}
 	filter := fmt.Sprintf("fps=1/%d,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2", cfg.IntervalSeconds, frameWidth, frameHeight, frameWidth, frameHeight)
 	args := []string{"-hide_banner", "-loglevel", "error"}
@@ -1519,6 +1553,7 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 		}
 		a.lastFrame = f
 		a.status.LastFrame = time.Now().Format(time.RFC3339)
+		a.sampleLogoCaptureLocked(f, time.Now())
 		if setup {
 			a.status.LastError = ""
 		}
@@ -1526,17 +1561,22 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 		if setup {
 			continue
 		}
-		bestScore := -1.0
+		best := LogoResult{Decision: "missing"}
+		var bestRef *logoTemplate
+		var plane logoPlane
 		for _, ref := range refs {
-			score, err := compareLogo(f, ref.frame, ref.rect, cfg.ContrastStrength)
-			if err != nil {
-				return err
+			if len(ref.features) < 8 || ref.cells < 3 {
+				continue
 			}
-			if score > bestScore {
-				bestScore = score
+			result := ref.find(f, &plane, cfg.SimilarityMinimum)
+			if bestRef == nil || betterLogoResult(result, best) {
+				best, bestRef = result, ref
 			}
 		}
-		a.observe(bestScore >= cfg.SimilarityMinimum, bestScore, cfg)
+		if ctx.Err() != nil {
+			return nil
+		}
+		a.observeLogo(best, bestRef, f, cfg, active.URL)
 	}
 }
 func (a *App) setError(e error) {
@@ -1547,6 +1587,11 @@ func (a *App) setError(e error) {
 }
 func (a *App) observe(present bool, score float64, cfg Config) {
 	a.mu.Lock()
+	a.observeLocked(present, score, cfg)
+}
+
+// Caller holds a.mu. This function releases it before contacting Kodi.
+func (a *App) observeLocked(present bool, score float64, cfg Config) {
 	a.status.Similarity = score
 	a.status.LogoPresent = &present
 	now := time.Now()
@@ -1855,7 +1900,7 @@ func (a *App) clearKodiPlaylists(cfg KodiConfig) error {
 	return nil
 }
 func validRect(r Rect) bool           { return r.X >= 0 && r.Y >= 0 && r.W >= 8 && r.H >= 8 }
-func rectInside(f Frame, r Rect) bool { return validRect(r) && r.X+r.W <= f.W && r.Y+r.H <= f.H }
+func rectInside(f Frame, r Rect) bool { return validRect(r) && r.X <= f.W-r.W && r.Y <= f.H-r.H }
 
 // trimUniformBorder removes the low-detail padding commonly left around a
 // logo after a manual drag. The threshold is deliberately conservative so a

@@ -39,6 +39,20 @@ Alternatively, select a file or URL that Kodi itself can access under “Placeho
 
 References belong to the channel currently detected in Kodi. After saving one channel image, choose the logo again from a different image section; the monitor uses the best match among all references for that channel. The UI shows only references for the active channel and can delete them individually. An existing single image from earlier versions is adopted automatically on the first start.
 
+The detector compares weighted logo contours and locally normalized image structure. Background outside the mask is ignored. References keep their aspect ratio during filtered resizing. Detection first checks the last confirmed position and size, then searches nearby in the same corner at 90%, 95%, 100%, 105%, and 110% of the saved size. A different logo design still needs its own reference.
+
+To make a stronger reference, load a current frame, select the logo, and choose **Capture image series · 30 seconds** while the logo remains visible. The existing decoder supplies the crops; no additional stream connection is opened. At least eight frames and three different background samples are required. With detection running, use an interval of three seconds or less. A channel change cancels the capture. Drafts expire after ten minutes. Explicit capture can temporarily use the monitor's decoder slot for preview while detection is stopped or paused; it does not enable automatic switching. Closing the editor releases this preview decoder through the existing lease mechanism.
+
+Review the green mask overlay and transparent preview, then use the include/exclude brush to correct background contours. Brush size, undo, and restoration of the automatic proposal are available. Saving the series creates a new reference. Clicking an existing reference opens its mask for editing. A mask identifies relevant contour areas; the transparent preview does not reconstruct the original foreground colours of a semitransparent TV overlay.
+
+Original `.rgb` references remain intact. Each new reference has a grayscale `.mask.png` sidecar and an `.auto-mask.png` proposal for resetting edits. Older references without sidecars receive an in-memory contour mask, and their existing contrast setting still applies until a mask is saved. Flat or unusable references cannot trigger automatic switching.
+
+The configured similarity threshold has an uncertainty band of ±0.03. Scores at least 0.03 above the threshold confirm presence; scores below its lower edge indicate absence. Shifted or resized matches use at least 0.85 as their base threshold. Uncertain frames reset both confirmation counters and do not switch Kodi. Existing protection periods and consecutive-frame requirements still apply.
+
+Under **Inspect logo detection** on the status page, load a snapshot with its crop, mask, location, scale, edge score, normalized structure score, and contour coverage. Export a ZIP labeled “logo present” or “logo missing” to collect real examples for calibration. Snapshot images and labels refer to the same frame; the last 32 snapshots are retained in memory. Improvements on real broadcasts still need verification against labeled programme and advertisement sequences.
+
+The additive API endpoints are `/api/logo-capture` (POST a rectangle to start; GET/DELETE with `?id=...`; POST with `?id=...` to save), `/api/logo-mask` (GET/PUT with `?id=...` or `?capture=...`; mask bytes are base64 JSON; `view=frame` or `view=transparent` returns an image), and `/api/logo-diagnostic` (GET a snapshot or image; POST `{ "present": true/false }` to export a labeled ZIP). Capture requires an active editor preview lease. `/api/status` adds `status.logo_detection`; uncertain observations omit `logo_present`.
+
 ## systemd
 
 ```ini
