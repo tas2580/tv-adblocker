@@ -101,7 +101,9 @@ const indexHTML = `<!doctype html><html lang=""><meta charset="utf-8"><meta name
   </div></details></div>
 <div class="settings-footer"><p data-i18n="settings.saveHint"></p><div class="status-actions"><button type="button" onclick="saveConfig()" data-i18n="recognition.save"></button></div></div>
 </section>
+<dialog id="help-dialog" aria-labelledby="help-title"><div class="help-dialog-header"><h2 id="help-title"></h2><button id="help-close" type="button" data-i18n-aria-label="help.close" data-i18n="help.close"></button></div><div id="help-content" class="help-content"></div></dialog>
 <style>
+.help-button{display:grid;place-items:center;width:28px;height:28px;min-width:28px;padding:0;margin:0;border:1px solid var(--border);border-radius:50%;background:var(--surface);color:var(--accent);font-size:1rem;line-height:1;box-shadow:none}.help-button:hover{background:var(--surface-alt)}.help-target{position:relative}.help-target>.help-button{position:absolute;top:.8rem;right:.8rem}.help-target.settings-card{padding-right:2.7rem}.help-target.settings-card legend{max-width:calc(100% - 1.8rem)}.help-target.status-card{padding-right:2.7rem}.help-target.source-choice{padding-right:3.5rem}.help-target.mask-workspace,.help-target.reference-library{padding-right:3rem}.help-target .help-button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.help-details-wrap{position:relative;margin-top:1.4rem}.help-details-wrap>.settings-advanced,.help-details-wrap>.status-details{margin-top:0;padding-right:3.3rem}.help-details-wrap>.help-button{position:absolute;top:.75rem;right:.75rem;z-index:1}.help-inline-row{display:flex;align-items:center;gap:.6rem;margin:.8rem 0 .5rem}.help-inline-row h3{font-size:.95rem;margin:0}.help-inline-row .help-button{margin-left:auto}.help-target.editor-toolbar{padding-right:2.5rem}.help-target.editor-toolbar>.help-button{top:0;right:0}.help-target.reference-library>.help-button{top:1.3rem}.help-target[data-panel="status"]>.help-button{top:1.4rem;right:1.4rem;z-index:1}.help-target[data-panel="status"] .status-topline{padding-right:4.5rem}.help-target[data-panel="status"] .status-kodi-unavailable{padding-right:4rem}#help-dialog{width:min(620px,calc(100% - 2rem));max-height:min(80vh,760px);padding:0;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--text);box-shadow:0 22px 70px #0005}#help-dialog::backdrop{background:#07111f99}.help-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface)}.help-dialog-header h2{margin:0;font-size:1.15rem}.help-dialog-header button{margin:0;background:var(--surface-alt);color:var(--text);border:1px solid var(--border)}.help-content{padding:1.1rem 1.3rem 1.4rem;line-height:1.65;overflow-wrap:anywhere}.help-content p{margin:0 0 .9rem}.help-content p:last-child{margin-bottom:0}@media(max-width:600px){.help-target[data-panel="status"]>.help-button{top:1rem;right:1rem}.help-target[data-panel="status"] .status-topline{padding-right:3.8rem}.help-dialog-header,.help-content{padding-left:1rem;padding-right:1rem}}
 .settings-panel{padding:0;overflow:hidden}
 .settings-hero{border-bottom:1px solid var(--border)}
 .settings-hero h2{font-size:clamp(1.5rem,3.5vw,2rem);line-height:1.2;margin:0}
@@ -173,9 +175,42 @@ let selectedTab='status',previewPageActive=true,previewSessionRequest=Promise.re
 const previewClientID=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
 const $=id=>document.getElementById(id),fields=['m3u_url','public_base_url','placeholder_url','placeholder_source','kodi_url','kodi_username','interval_seconds','missing_frames','present_frames','program_cooldown_seconds','pause_detection_during_program_lock','placeholder_min_seconds','similarity_minimum','contrast_strength'],supportedLanguages=['de','en'];
 function t(key,values={}){let text=messages[key]||key;return text.replace(/\{(\w+)\}/g,(_,name)=>values[name]??'')}
+const helpTargets=[
+  ['[data-panel="status"]','status.overview'],
+  ['[data-panel="status"] .status-card:nth-child(1)','status.playback'],
+  ['[data-panel="status"] .status-card:nth-child(2)','status.duration'],
+  ['[data-panel="status"] .status-card:nth-child(3)','status.detection'],
+  ['[data-panel="status"] .status-content>.status-actions','status.controls','before'],
+  ['[data-panel="status"] .logo-diagnostic','status.diagnostic','details'],
+  ['[data-panel="status"] .status-details:not(.logo-diagnostic)','status.details','details'],
+  ['[data-panel="kodi"] .settings-card:nth-child(1)','kodi.connection'],
+  ['[data-panel="kodi"] .settings-card:nth-child(2)','kodi.channels'],
+  ['[data-panel="kodi"] .settings-advanced','kodi.network','details'],
+  ['[data-panel="placeholder"] .source-choice','placeholder.source'],
+  ['[data-panel="placeholder"] .settings-card:nth-child(1)','placeholder.image'],
+  ['[data-panel="placeholder"] .settings-card:nth-child(2)','placeholder.files'],
+  ['[data-panel="logos"] .editor-toolbar','logos.editor'],
+  ['[data-panel="logos"] .mask-workspace','logos.mask'],
+  ['[data-panel="logos"] .reference-library','logos.library'],
+  ['[data-panel="recognition"] .settings-card:nth-child(1)','recognition.detection'],
+  ['[data-panel="recognition"] .settings-card:nth-child(2)','recognition.timing'],
+  ['[data-panel="recognition"] .settings-advanced','recognition.advanced','details']
+];
+let helpOpener=null,openHelpKey='';
+function renderHelp(key){$('help-title').textContent=t('help.'+key+'.title');let content=$('help-content');content.replaceChildren(...t('help.'+key+'.body').split(/\n\n+/).map(paragraph=>{let p=document.createElement('p');p.textContent=paragraph;return p}))}
+function refreshHelpLabels(){document.querySelectorAll('.help-button').forEach(button=>{let label=t('help.open',{topic:t('help.'+button.dataset.help+'.title')});button.setAttribute('aria-label',label);button.title=label});if($('help-dialog').open)renderHelp(openHelpKey)}
+function setupHelp(){
+  for(let [selector,key,placement] of helpTargets){let target=document.querySelector(selector);if(!target)continue;let button=document.createElement('button');button.type='button';button.className='help-button';button.dataset.help=key;button.textContent='?';button.addEventListener('click',()=>{helpOpener=button;openHelpKey=key;renderHelp(key);$('help-dialog').showModal();$('help-close').focus()});
+    if(placement==='details'){let wrapper=document.createElement('div');wrapper.className='help-details-wrap';target.before(wrapper);wrapper.append(target,button)}
+    else if(placement==='before'){let row=document.createElement('div');row.className='help-inline-row';let heading=document.createElement('h3');heading.dataset.i18n='help.'+key+'.title';row.append(heading,button);target.before(row)}
+    else{target.classList.add('help-target');target.append(button)}
+  }
+  $('help-close').addEventListener('click',()=>$('help-dialog').close());
+  $('help-dialog').addEventListener('close',()=>{helpOpener?.focus();helpOpener=null;openHelpKey=''});
+}
 function translatePage(){document.querySelectorAll('[data-i18n]').forEach(element=>{let text=t(element.dataset.i18n);if(element.children.length){let node=[...element.childNodes].find(child=>child.nodeType===Node.TEXT_NODE);if(node)node.nodeValue=text;else element.prepend(document.createTextNode(text))}else element.textContent=text});document.querySelectorAll('[data-i18n-placeholder]').forEach(element=>element.placeholder=t(element.dataset.i18nPlaceholder));document.querySelectorAll('[data-i18n-alt]').forEach(element=>element.alt=t(element.dataset.i18nAlt));document.querySelectorAll('[data-i18n-aria-label]').forEach(element=>element.setAttribute('aria-label',t(element.dataset.i18nAriaLabel)));$('rect').textContent=rect?t('logos.selectionSize',{width:rect.w,height:rect.h}):t('logos.noSelection');$('references').textContent=t('common.loading')}
 function preferredLanguage(){let languages=navigator.languages?.length?navigator.languages:[navigator.language];return languages.map(value=>value.toLowerCase().split('-')[0]).find(value=>supportedLanguages.includes(value))||'en'}
-async function setLanguage(next,manual=false){language=supportedLanguages.includes(next)?next:'en';let response=await fetch('/i18n/'+language+'.json');if(!response.ok)throw Error();messages=await response.json();document.documentElement.lang=language;$('language-select').value=language;translatePage();applyTheme(localStorage.getItem('tv-logo-monitor-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));if(manual)localStorage.setItem('tv-logo-monitor-language',language);if(formInitialized){await status();await refreshReferences()}}
+async function setLanguage(next,manual=false){language=supportedLanguages.includes(next)?next:'en';let response=await fetch('/i18n/'+language+'.json');if(!response.ok)throw Error();messages=await response.json();document.documentElement.lang=language;$('language-select').value=language;translatePage();refreshHelpLabels();applyTheme(localStorage.getItem('tv-logo-monitor-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));if(manual)localStorage.setItem('tv-logo-monitor-language',language);if(formInitialized){await status();await refreshReferences()}}
 function applyTheme(theme){document.body.classList.toggle('dark',theme==='dark');$('theme-toggle').textContent=t(theme==='dark'?'theme.light':'theme.dark');localStorage.setItem('tv-logo-monitor-theme',theme)}
 function toggleTheme(){applyTheme(document.body.classList.contains('dark')?'light':'dark')}
 function previewWanted(){return selectedTab==='logos'&&previewPageActive&&!document.hidden}
@@ -186,6 +221,7 @@ function syncPreviewSession(){
 }
 function selectTab(name){selectedTab=name;document.querySelectorAll('.tab').forEach(tab=>tab.classList.toggle('active',tab.dataset.tab===name));document.querySelectorAll('.tab-panel').forEach(panel=>panel.classList.toggle('active',panel.dataset.panel===name));localStorage.setItem('tv-logo-monitor-tab',name);void syncPreviewSession().catch(()=>{})}
 function setupUI(){
+  setupHelp();
   document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>selectTab(tab.dataset.tab)));
   $('language-select').addEventListener('change',event=>setLanguage(event.target.value,true));
   $('kodi_placeholders').addEventListener('input',()=>syncKodiPlaceholderOptions($('kodi_placeholder').value));
