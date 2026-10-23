@@ -26,6 +26,7 @@ const indexHTML = `<!doctype html><html lang=""><meta charset="utf-8"><meta name
     <div id="status-errors" class="status-notice status-errors" role="status" hidden></div>
     <div class="status-actions"><button id="detection-toggle" type="button" onclick="toggleDetection()" disabled data-i18n="status.startDetection"></button><button id="play-sender" class="secondary" type="button" hidden onclick="post('/api/play/sender')" data-i18n="status.playSender"></button><button id="play-placeholder" class="secondary" type="button" onclick="post('/api/play/placeholder')" disabled data-i18n="status.playPlaceholder"></button><button id="cancel-program-cooldown" class="secondary" type="button" hidden onclick="post('/api/cancel-program-cooldown')" data-i18n="status.cancelCooldown"></button><button id="resume-automatic" class="secondary" type="button" hidden onclick="post('/api/resume-automatic')" data-i18n="status.resumeAutomatic"></button></div>
 ` + logoDiagnosticHTML + `
+` + debugCaptureHTML + `
     <details class="status-details"><summary data-i18n="status.details"></summary><div id="status" data-i18n="common.loading"></div></details>
   </div>
 </section>
@@ -44,30 +45,10 @@ const indexHTML = `<!doctype html><html lang=""><meta charset="utf-8"><meta name
   </div>
   <details class="settings-advanced"><summary data-i18n="kodi.networkHeading"></summary><p class="card-description" data-i18n="kodi.networkHint"></p><div class="grid">
     <label><span data-i18n="kodi.publicBaseUrl"></span><input id="public_base_url" data-i18n-placeholder="kodi.publicBasePlaceholder"></label>
-    <label><span data-i18n="kodi.placeholderUrl"></span><input id="placeholder_url" data-i18n-placeholder="kodi.placeholderUrlPlaceholder"></label>
   </div></details></div>
 <div class="settings-footer"><p data-i18n="settings.saveHint"></p><div class="status-actions"><button type="button" onclick="saveConfig()" data-i18n="actions.saveConfig"></button><button type="button" class="secondary" onclick="testKodiConnection()" data-i18n="status.testKodi"></button></div></div>
 </section>
-<section class="tab-panel settings-panel" data-panel="placeholder">
-  <div class="status-hero settings-hero">
-    <div class="status-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="26" height="24" rx="4"/><circle cx="11" cy="12" r="2"/><path d="m4 24 8-8 5 5 4-5 8 8"/></svg></div>
-    <div class="status-hero-copy"><p class="status-eyebrow" data-i18n="tabs.placeholder"></p><h2 data-i18n="placeholder.heading"></h2><p class="status-description" data-i18n="placeholder.intro"></p></div>
-  </div>
-  <div class="settings-body">
-    <div class="source-choice"><label><span data-i18n="placeholder.source"></span><select id="placeholder_source"><option value="uploaded-image" data-i18n="placeholder.uploadedImage"></option><option value="kodi-local" data-i18n="placeholder.kodiLocal"></option></select></label><p class="card-description" data-i18n="placeholder.sourceHint"></p></div>
-    <div class="settings-grid">
-      <fieldset class="settings-card"><legend data-i18n="placeholder.imageHeading"></legend><p class="card-description" data-i18n="placeholder.imageHint"></p>
-<div class="image-stage placeholder-stage"><div class="empty-preview"><span class="empty-symbol" aria-hidden="true">▧</span><p data-i18n="placeholder.emptyPreview"></p></div><img id="placeholder-preview" data-i18n-alt="placeholder.previewAlt"></div>
-      <label class="upload-field"><span data-i18n="placeholder.selectImage"></span><input id="placeholder_image_file" type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/bmp"></label>
-      <button type="button" class="secondary" onclick="uploadPlaceholderImage()" data-i18n="placeholder.upload"></button>
-</fieldset>
-      <fieldset class="settings-card"><legend data-i18n="placeholder.filesHeading"></legend><p class="card-description" data-i18n="placeholder.filesHint"></p>
-<label><span data-i18n="placeholder.kodiFiles"></span><textarea id="kodi_placeholders" rows="5" data-i18n-placeholder="placeholder.kodiFilesPlaceholder"></textarea></label><label><span data-i18n="placeholder.kodiFile"></span><select id="kodi_placeholder"></select></label>
-</fieldset>
-    </div>
-  </div>
-<div class="settings-footer"><p data-i18n="settings.saveHint"></p><div class="status-actions"><button type="button" onclick="saveConfig()" data-i18n="placeholder.save"></button></div></div>
-</section>
+` + fillerHTML + `
 <section class="tab-panel settings-panel" data-panel="logos">
   <div class="status-hero settings-hero">
     <div class="status-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H7a3 3 0 0 0-3 3v4M21 4h4a3 3 0 0 1 3 3v4M4 21v4a3 3 0 0 0 3 3h4M28 21v4a3 3 0 0 1-3 3h-4"/><circle cx="16" cy="16" r="6"/><path d="m13 16 2 2 4-4"/></svg></div>
@@ -98,7 +79,9 @@ const indexHTML = `<!doctype html><html lang=""><meta charset="utf-8"><meta name
   <details class="settings-advanced"><summary data-i18n="recognition.advancedHeading"></summary><p class="card-description" data-i18n="recognition.advancedHint"></p><div class="grid">
     <label><span data-i18n="recognition.similarity"></span><input id="similarity_minimum" type="number" min="0.1" max="1" step="0.01"></label>
     <label><span data-i18n="recognition.contrast"></span><input id="contrast_strength" type="number" min="0.5" max="3" step="0.1"></label>
-  </div></details></div>
+  </div><label class="checkbox toggle-card"><input id="debug_enabled" type="checkbox"><span data-i18n="debug.enable"></span></label><p class="field-hint" data-i18n="debug.enableHint"></p></details>
+` + channelThresholdHTML + `
+  </div>
 <div class="settings-footer"><p data-i18n="settings.saveHint"></p><div class="status-actions"><button type="button" onclick="saveConfig()" data-i18n="recognition.save"></button></div></div>
 </section>
 <dialog id="help-dialog" aria-labelledby="help-title"><div class="help-dialog-header"><h2 id="help-title"></h2><button id="help-close" type="button" data-i18n-aria-label="help.close" data-i18n="help.close"></button></div><div id="help-content" class="help-content"></div></dialog>
@@ -168,12 +151,14 @@ const indexHTML = `<!doctype html><html lang=""><meta charset="utf-8"><meta name
 .settings-card .toggle-card input{margin:0;accent-color:var(--accent);flex:0 0 auto;width:18px;height:18px}
 @media(max-width:760px){.settings-grid{grid-template-columns:1fr}.settings-footer .status-actions{width:100%}}
 @media(max-width:600px){.settings-body{padding:1rem}.settings-card{padding:1rem}.settings-card .grid{grid-template-columns:1fr}.settings-footer{padding:1rem}.settings-advanced{padding:1rem}.settings-advanced .grid{grid-template-columns:minmax(0,1fr)}.source-choice{align-items:stretch;flex-direction:column;gap:.7rem;padding:1rem}.setup-steps{grid-template-columns:1fr;gap:.7rem}.selection-toolbar .status-actions{width:100%}.settings-panel .status-hero{align-items:flex-start}.references{grid-template-columns:repeat(auto-fill,minmax(125px,1fr))}.logo-stage{min-height:200px}}
+` + fillerCSS + `
 </style>
 <script>
 let cfg={},rect=null,start=null,formInitialized=false,currentActiveURL='',selectedReferenceID='',messages={},language='en';
 let selectedTab='status',previewPageActive=true,previewSessionRequest=Promise.resolve(),previewLoadController=null;
+let elapsedClock=null,statusDetailLines=null,statusDetailElapsedIndex=-1;
 const previewClientID=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
-const $=id=>document.getElementById(id),fields=['m3u_url','public_base_url','placeholder_url','placeholder_source','kodi_url','kodi_username','interval_seconds','missing_frames','present_frames','program_cooldown_seconds','pause_detection_during_program_lock','placeholder_min_seconds','similarity_minimum','contrast_strength'],supportedLanguages=['de','en'];
+const $=id=>document.getElementById(id),fields=['m3u_url','public_base_url','kodi_url','kodi_username','interval_seconds','missing_frames','present_frames','program_cooldown_seconds','pause_detection_during_program_lock','placeholder_min_seconds','similarity_minimum','contrast_strength','debug_enabled'],supportedLanguages=['de','en'];
 function t(key,values={}){let text=messages[key]||key;return text.replace(/\{(\w+)\}/g,(_,name)=>values[name]??'')}
 const helpTargets=[
   ['[data-panel="status"]','status.overview'],
@@ -182,11 +167,12 @@ const helpTargets=[
   ['[data-panel="status"] .status-card:nth-child(3)','status.detection'],
   ['[data-panel="status"] .status-content>.status-actions','status.controls','before'],
   ['[data-panel="status"] .logo-diagnostic','status.diagnostic','details'],
-  ['[data-panel="status"] .status-details:not(.logo-diagnostic)','status.details','details'],
+  ['[data-panel="status"] .debug-captures','status.debug','details'],
+  ['[data-panel="status"] .status-details:not(.logo-diagnostic):not(.debug-captures)','status.details','details'],
   ['[data-panel="kodi"] .settings-card:nth-child(1)','kodi.connection'],
   ['[data-panel="kodi"] .settings-card:nth-child(2)','kodi.channels'],
   ['[data-panel="kodi"] .settings-advanced','kodi.network','details'],
-  ['[data-panel="placeholder"] .source-choice','placeholder.source'],
+  ['[data-panel="placeholder"] .filler-library','placeholder.source'],
   ['[data-panel="placeholder"] .settings-card:nth-child(1)','placeholder.image'],
   ['[data-panel="placeholder"] .settings-card:nth-child(2)','placeholder.files'],
   ['[data-panel="logos"] .editor-toolbar','logos.editor'],
@@ -194,7 +180,8 @@ const helpTargets=[
   ['[data-panel="logos"] .reference-library','logos.library'],
   ['[data-panel="recognition"] .settings-card:nth-child(1)','recognition.detection'],
   ['[data-panel="recognition"] .settings-card:nth-child(2)','recognition.timing'],
-  ['[data-panel="recognition"] .settings-advanced','recognition.advanced','details']
+  ['[data-panel="recognition"] .settings-advanced:not(.channel-thresholds)','recognition.advanced','details'],
+  ['[data-panel="recognition"] .channel-thresholds','recognition.channels','details']
 ];
 let helpOpener=null,openHelpKey='';
 function renderHelp(key){$('help-title').textContent=t('help.'+key+'.title');let content=$('help-content');content.replaceChildren(...t('help.'+key+'.body').split(/\n\n+/).map(paragraph=>{let p=document.createElement('p');p.textContent=paragraph;return p}))}
@@ -210,7 +197,7 @@ function setupHelp(){
 }
 function translatePage(){document.querySelectorAll('[data-i18n]').forEach(element=>{let text=t(element.dataset.i18n);if(element.children.length){let node=[...element.childNodes].find(child=>child.nodeType===Node.TEXT_NODE);if(node)node.nodeValue=text;else element.prepend(document.createTextNode(text))}else element.textContent=text});document.querySelectorAll('[data-i18n-placeholder]').forEach(element=>element.placeholder=t(element.dataset.i18nPlaceholder));document.querySelectorAll('[data-i18n-alt]').forEach(element=>element.alt=t(element.dataset.i18nAlt));document.querySelectorAll('[data-i18n-aria-label]').forEach(element=>element.setAttribute('aria-label',t(element.dataset.i18nAriaLabel)));$('rect').textContent=rect?t('logos.selectionSize',{width:rect.w,height:rect.h}):t('logos.noSelection');$('references').textContent=t('common.loading')}
 function preferredLanguage(){let languages=navigator.languages?.length?navigator.languages:[navigator.language];return languages.map(value=>value.toLowerCase().split('-')[0]).find(value=>supportedLanguages.includes(value))||'en'}
-async function setLanguage(next,manual=false){language=supportedLanguages.includes(next)?next:'en';let response=await fetch('/i18n/'+language+'.json');if(!response.ok)throw Error();messages=await response.json();document.documentElement.lang=language;$('language-select').value=language;translatePage();refreshHelpLabels();applyTheme(localStorage.getItem('tv-logo-monitor-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));if(manual)localStorage.setItem('tv-logo-monitor-language',language);if(formInitialized){await status();await refreshReferences()}}
+async function setLanguage(next,manual=false){language=supportedLanguages.includes(next)?next:'en';let response=await fetch('/i18n/'+language+'.json');if(!response.ok)throw Error();messages=await response.json();document.documentElement.lang=language;$('language-select').value=language;translatePage();refreshHelpLabels();applyTheme(localStorage.getItem('tv-logo-monitor-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));if(manual)localStorage.setItem('tv-logo-monitor-language',language);if(formInitialized){renderFillers();renderChannelThresholds();await status();await refreshReferences()}}
 function applyTheme(theme){document.body.classList.toggle('dark',theme==='dark');$('theme-toggle').textContent=t(theme==='dark'?'theme.light':'theme.dark');localStorage.setItem('tv-logo-monitor-theme',theme)}
 function toggleTheme(){applyTheme(document.body.classList.contains('dark')?'light':'dark')}
 function previewWanted(){return selectedTab==='logos'&&previewPageActive&&!document.hidden}
@@ -219,12 +206,12 @@ function syncPreviewSession(){
   previewSessionRequest=previewSessionRequest.catch(()=>{}).then(()=>api('/api/preview',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_id:previewClientID,active:previewWanted()}),keepalive:true}));
   return previewSessionRequest;
 }
-function selectTab(name){selectedTab=name;document.querySelectorAll('.tab').forEach(tab=>tab.classList.toggle('active',tab.dataset.tab===name));document.querySelectorAll('.tab-panel').forEach(panel=>panel.classList.toggle('active',panel.dataset.panel===name));localStorage.setItem('tv-logo-monitor-tab',name);void syncPreviewSession().catch(()=>{})}
+function selectTab(name){selectedTab=name;document.querySelectorAll('.tab').forEach(tab=>tab.classList.toggle('active',tab.dataset.tab===name));document.querySelectorAll('.tab-panel').forEach(panel=>panel.classList.toggle('active',panel.dataset.panel===name));localStorage.setItem('tv-logo-monitor-tab',name);void syncPreviewSession().catch(()=>{});if(name==='recognition'&&formInitialized)void refreshChannelThresholds()}
 function setupUI(){
   setupHelp();
+  $('similarity_minimum').addEventListener('input',updateChannelThresholdPlaceholders);
   document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>selectTab(tab.dataset.tab)));
   $('language-select').addEventListener('change',event=>setLanguage(event.target.value,true));
-  $('kodi_placeholders').addEventListener('input',()=>syncKodiPlaceholderOptions($('kodi_placeholder').value));
   let tab=localStorage.getItem('tv-logo-monitor-tab');
   if(tab&&document.querySelector('[data-panel="'+tab+'"]'))selectTab(tab);
   setInterval(()=>{if(previewWanted())void syncPreviewSession().catch(()=>{})},5000);
@@ -238,6 +225,29 @@ function setupUI(){
   window.addEventListener('pageshow',()=>{previewPageActive=true;void syncPreviewSession().catch(()=>{})});
 }
 function formatSeconds(seconds){let m=Math.floor(seconds/60),s=seconds%60;return m+':'+String(s).padStart(2,'0')}
+function syncElapsedClock(status,active){
+  const placeholder=['placeholder','manual-placeholder','switching-placeholder'].includes(status.mode);
+  if(!active.url&&!placeholder){elapsedClock=null;return}
+  const phase=placeholder?'advert':'program';
+  const startedAt=placeholder?status.advert_started_at:status.program_started_at;
+  const serverSeconds=placeholder?status.advert_elapsed_seconds:status.program_elapsed_seconds;
+  if(elapsedClock?.phase===phase&&elapsedClock.startedAt===startedAt)return;
+  elapsedClock={phase,startedAt,seconds:startedAt?Math.max(0,serverSeconds||0):0};
+}
+function renderElapsedClock(){
+  if(!elapsedClock)return;
+  const time=formatSeconds(elapsedClock.seconds);
+  $('status-elapsed').textContent=time;
+  if(statusDetailLines){
+    statusDetailLines[statusDetailElapsedIndex]=t(elapsedClock.phase==='advert'?'status.advertElapsed':'status.programElapsed',{time});
+    $('status').textContent=statusDetailLines.filter(Boolean).join('\n');
+  }
+}
+function tickElapsedClock(){
+  if(!elapsedClock)return;
+  if(elapsedClock.startedAt)elapsedClock.seconds++;
+  renderElapsedClock();
+}
 async function api(path,opt={}){opt.headers={...(opt.headers||{}),'Accept-Language':language};let r=await fetch(path,opt);if(!r.ok)throw Error(await r.text());return r.headers.get('content-type')?.includes('json')?r.json():r.text()}
 function modeName(mode){return t('status.mode.'+(mode||'ready'))}
 function renderChannelLogo(active){
@@ -262,7 +272,7 @@ function renderProgramme(title){
 }
 function renderStatus(x){
   const s=x.status,active=x.active_channel||{},placeholder=['placeholder','manual-placeholder','switching-placeholder'].includes(s.mode),switching=s.mode?.startsWith('switching-'),enabled=s.running||s.detection_paused;
-  const errors=[s.kodi_error?t('status.kodiError',{value:s.kodi_error}):'',s.last_error?t('status.error',{value:s.last_error}):'',s.playlist_error?t('status.playlistError',{value:s.playlist_error}):''].filter(Boolean);
+  const errors=[s.kodi_error?t('status.kodiError',{value:s.kodi_error}):'',s.last_error?t('status.error',{value:s.last_error}):'',s.playlist_error?t('status.playlistError',{value:s.playlist_error}):'',s.debug_error?t('debug.saveError',{error:s.debug_error}):''].filter(Boolean);
   const setup=s.mode==='setup'||(active.url&&!x.reference_count),state=errors.length?'attention':s.manual_placeholder?'manual':!active.url?'waiting':setup?'setup':!enabled?'stopped':s.detection_paused?'paused':'active';
   $('status-badge').textContent=t('status.state.'+state);
   $('status-badge').dataset.tone=errors.length?'error':state==='active'?'good':['manual','setup','paused'].includes(state)?'warm':'neutral';
@@ -290,15 +300,14 @@ function renderStatusErrors(errors){
   box.hidden=!errors.length;
 }
 function renderStatusError(error){
+  elapsedClock=null;
   $('status-badge').textContent=t('status.state.offline');$('status-badge').dataset.tone='error';
   $('status-description').textContent=t('status.offlineHint');
   renderStatusErrors([t('status.offlineHint'),error.message].filter(Boolean));
   document.querySelectorAll('.status-actions button').forEach(button=>button.disabled=true);
 }
-async function status(syncForm=false){try{let x=await api('/api/status');cfg=x.config;if(syncForm||!formInitialized){for(let f of fields){let k=['kodi_url','kodi_username'].includes(f)?f.slice(5):f;if(cfg[k]!==undefined)f==='pause_detection_during_program_lock'?$(f).checked=cfg[k]:$(f).value=cfg[k]}$('kodi_placeholders').value=(cfg.kodi_placeholders||[]).join('\n');syncKodiPlaceholderOptions(cfg.kodi_placeholder||'');if(cfg.kodi){$('kodi_url').value=cfg.kodi.url||'';$('kodi_username').value=cfg.kodi.username||''}$('kodi_password').value='';formInitialized=true}renderPlaceholderImage();let kodiUnavailable=Boolean(x.status.kodi_error);$('status-kodi-unavailable').hidden=!kodiUnavailable;document.querySelectorAll('[data-status-online]').forEach(element=>element.hidden=kodiUnavailable);if(kodiUnavailable){currentActiveURL='';return}let active=x.active_channel||{},key=active.url||'';if(key!==currentActiveURL){currentActiveURL=key;closeLogoMask();if(captureID)void cancelLogoCapture();refreshReferences()}let s=x.status,placeholderActive=['placeholder','manual-placeholder','switching-placeholder'].includes(s.mode),source=t(cfg.placeholder_source==='kodi-local'?'status.sourceKodi':'status.sourceUploaded'),elapsed=placeholderActive?s.advert_elapsed_seconds:s.program_elapsed_seconds,lockState=s.program_cooldown_active?t('status.lockActive',{time:formatSeconds(s.program_cooldown_remaining||0)}):t('status.lockInactive'),detectorActive=s.running||s.detection_paused;$('detection-toggle').textContent=t(s.detection_paused?'status.detectionPaused':s.running?'status.stopDetection':'status.startDetection');$('detection-toggle').dataset.running=String(detectorActive);$('play-sender').hidden=!placeholderActive;$('play-placeholder').hidden=placeholderActive;$('resume-automatic').hidden=!s.manual_placeholder;$('status').textContent=[t('status.channel',{value:active.name||t('status.noChannel')}),t('status.kodiLabel',{value:s.kodi_label||'–'}),t('status.kodiFile',{value:s.kodi_file||'–'}),t('status.placeholderSource',{value:source}),t('status.mode',{value:modeName(s.mode)}),t(placeholderActive?'status.advertElapsed':'status.programElapsed',{time:formatSeconds(elapsed||0)}),t('status.lock',{value:lockState}),t('status.timing',{program:formatSeconds(cfg.program_cooldown_seconds||0),advert:formatSeconds(cfg.placeholder_min_seconds||0)}),t('status.running',{value:t(s.running?'common.yes':'common.no')}),s.detection_paused?t('status.detectionPaused'):'',t('status.logo',{value:s.logo_present===undefined?t('status.unknown'):t(s.logo_present?'common.yes':'common.no')}),t('status.similarity',{value:(s.similarity||0).toFixed(3)}),t('status.matches',{matches:s.matches,misses:s.misses}),s.placeholder_min_remaining?t('status.minimumRemaining',{time:formatSeconds(s.placeholder_min_remaining)}):'',s.kodi_error?t('status.kodiError',{value:s.kodi_error}):'',s.last_error?t('status.error',{value:s.last_error}):'',s.playlist_error?t('status.playlistError',{value:s.playlist_error}):'',t('status.references',{count:x.reference_count||0})].filter(Boolean).join('\n');renderStatus(x)}catch(e){renderStatusError(e)}}
-function syncKodiPlaceholderOptions(selected=''){let entries=[...new Set($('kodi_placeholders').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean))],select=$('kodi_placeholder');if(selected&&!entries.includes(selected))entries.push(selected);select.replaceChildren(...entries.map(value=>{let option=document.createElement('option');option.value=value;option.textContent=value;return option}));select.value=selected||entries[0]||''}
-function renderPlaceholderImage(){let image=$('placeholder-preview'),name=cfg.placeholder_image||'';if(!name||cfg.placeholder_source==='kodi-local'){image.style.display='none';image.removeAttribute('src');return}let src='/placeholder-image/'+encodeURIComponent(name);if(image.dataset.name!==name){image.src=src;image.dataset.name=name}image.style.display='inline-block'}
-function collect(){let n={...cfg};for(let f of ['m3u_url','public_base_url','placeholder_url','placeholder_source','kodi_placeholder','interval_seconds','missing_frames','present_frames','program_cooldown_seconds','placeholder_min_seconds','similarity_minimum','contrast_strength'])n[f]=['interval_seconds','missing_frames','present_frames','program_cooldown_seconds','placeholder_min_seconds','similarity_minimum','contrast_strength'].includes(f)?Number($(f).value):$(f).value;n.pause_detection_during_program_lock=$('pause_detection_during_program_lock').checked;n.kodi_placeholders=[...new Set($('kodi_placeholders').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean))];if(n.placeholder_image&&n.public_base_url){n.placeholder_url=n.public_base_url.replace(/\/+$/,'')+'/placeholder-image/'+n.placeholder_image;$('placeholder_url').value=n.placeholder_url}n.kodi={...(cfg.kodi||{}),url:$('kodi_url').value,username:$('kodi_username').value,password:$('kodi_password').value};return n}
+async function status(syncForm=false){try{let x=await api('/api/status');cfg=x.config;if(syncForm||!formInitialized){for(let f of fields){let k=['kodi_url','kodi_username'].includes(f)?f.slice(5):f;if(cfg[k]!==undefined)['pause_detection_during_program_lock','debug_enabled'].includes(f)?$(f).checked=cfg[k]:$(f).value=cfg[k]}syncFillerForm(cfg,x.filler_timezone);syncChannelThresholdForm(cfg);if(cfg.kodi){$('kodi_url').value=cfg.kodi.url||'';$('kodi_username').value=cfg.kodi.username||''}$('kodi_password').value='';formInitialized=true}let kodiUnavailable=Boolean(x.status.kodi_error);$('status-kodi-unavailable').hidden=!kodiUnavailable;document.querySelectorAll('[data-status-online]').forEach(element=>element.hidden=kodiUnavailable);if(kodiUnavailable){currentActiveURL='';elapsedClock=null;statusDetailLines=null;return}let active=x.active_channel||{},key=active.url||'';if(key!==currentActiveURL){currentActiveURL=key;closeLogoMask();if(captureID)void cancelLogoCapture();refreshReferences()}let s=x.status;syncElapsedClock(s,active);let placeholderActive=['placeholder','manual-placeholder','switching-placeholder'].includes(s.mode),source=t('status.sourceLibrary'),elapsed=placeholderActive?s.advert_elapsed_seconds:s.program_elapsed_seconds,lockState=s.program_cooldown_active?t('status.lockActive',{time:formatSeconds(s.program_cooldown_remaining||0)}):t('status.lockInactive'),detectorActive=s.running||s.detection_paused;$('detection-toggle').textContent=t(s.detection_paused?'status.detectionPaused':s.running?'status.stopDetection':'status.startDetection');$('detection-toggle').dataset.running=String(detectorActive);$('play-sender').hidden=!placeholderActive;$('play-placeholder').hidden=placeholderActive;$('resume-automatic').hidden=!s.manual_placeholder;statusDetailLines=[t('status.channel',{value:active.name||t('status.noChannel')}),t('status.kodiLabel',{value:s.kodi_label||'–'}),t('status.kodiFile',{value:s.kodi_file||'–'}),t('status.placeholderSource',{value:source}),t('status.mode',{value:modeName(s.mode)}),t(placeholderActive?'status.advertElapsed':'status.programElapsed',{time:formatSeconds(elapsed||0)}),t('status.lock',{value:lockState}),t('status.timing',{program:formatSeconds(cfg.program_cooldown_seconds||0),advert:formatSeconds(cfg.placeholder_min_seconds||0)}),t('status.running',{value:t(s.running?'common.yes':'common.no')}),s.detection_paused?t('status.detectionPaused'):'',t('status.logo',{value:s.logo_present===undefined?t('status.unknown'):t(s.logo_present?'common.yes':'common.no')}),t('status.similarity',{value:(s.similarity||0).toFixed(3)}),t('status.matches',{matches:s.matches,misses:s.misses}),s.placeholder_min_remaining?t('status.minimumRemaining',{time:formatSeconds(s.placeholder_min_remaining)}):'',s.kodi_error?t('status.kodiError',{value:s.kodi_error}):'',s.last_error?t('status.error',{value:s.last_error}):'',s.playlist_error?t('status.playlistError',{value:s.playlist_error}):'',t('status.references',{count:x.reference_count||0})];statusDetailElapsedIndex=5;$('status').textContent=statusDetailLines.filter(Boolean).join('\n');renderStatus(x);renderElapsedClock();if($('debug-capture-panel').open)void refreshDebugCaptures()}catch(e){renderStatusError(e)}}
+function collect(){let n={...cfg};n.channel_similarity_minimum=collectChannelThresholds();for(let f of ['m3u_url','public_base_url','interval_seconds','missing_frames','present_frames','program_cooldown_seconds','placeholder_min_seconds','similarity_minimum','contrast_strength'])n[f]=['interval_seconds','missing_frames','present_frames','program_cooldown_seconds','placeholder_min_seconds','similarity_minimum','contrast_strength'].includes(f)?Number($(f).value):$(f).value;n.pause_detection_during_program_lock=$('pause_detection_during_program_lock').checked;n.debug_enabled=$('debug_enabled').checked;n.fillers=structuredClone(fillerDraft);n.fallback_filler_id=fallbackFillerID;n.kodi={...(cfg.kodi||{}),url:$('kodi_url').value,username:$('kodi_username').value,password:$('kodi_password').value};return n}
 async function saveConfig(notify=true){try{await api('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(collect())});await status(true);await refreshReferences();if(notify)alert(t('alerts.saved'))}catch(e){if(notify)alert(e.message);throw e}}
 async function post(p){try{await api(p,{method:'POST'});await status()}catch(e){alert(e.message)}}
 async function toggleDetection(){await post($('detection-toggle').dataset.running==='true'?'/api/stop':'/api/start')}
@@ -342,8 +351,7 @@ function selectReference(ref){void openLogoMask(ref.id);rect={...ref.rect};selec
 async function saveReference(){if(!rect)return alert(t('alerts.selectArea'));try{let saved=await api('/api/reference',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(rect)});selectedReferenceID=saved.id;await openLogoMask(saved.id);await status();await refreshReferences();alert(t('alerts.referenceSaved'))}catch(e){alert(e.message)}}
 async function optimizeSelection(){if(!rect)return alert(t('alerts.selectArea'));try{rect=await api('/api/optimize-rect',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(rect)});showSelection();$('rect').textContent=t('logos.selectionSize',{width:rect.w,height:rect.h})}catch(e){alert(e.message)}}
 async function refreshReferences(){try{let refs=await api('/api/references'),box=$('references');refs=Array.isArray(refs)?refs:[];box.replaceChildren();if(!refs.length){box.textContent=t('logos.noReferences');return}for(let ref of refs){let card=document.createElement('div');card.className='reference';card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label',t('logos.showPosition'));card.onclick=()=>selectReference(ref);card.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();selectReference(ref)}};let img=document.createElement('img');img.src='/api/references/'+encodeURIComponent(ref.id)+'.bmp';img.alt=t('logos.referenceAlt');let label=document.createElement('small');label.textContent=ref.created_at;label.title=ref.stream_name||ref.stream_url;let remove=document.createElement('button');remove.textContent=t('actions.delete');remove.onclick=async event=>{event.stopPropagation();if(!confirm(t('alerts.deleteReference')))return;try{await api('/api/references/'+encodeURIComponent(ref.id),{method:'DELETE'});if(selectedReferenceID===ref.id){selectedReferenceID='';closeLogoMask()}await status();await refreshReferences()}catch(e){alert(e.message)}};card.append(img,label,remove);box.append(card)}}catch(e){$('references').textContent=t('logos.referencesFailed',{error:e.message})}}
-async function uploadPlaceholderImage(){let input=$('placeholder_image_file');if(!input.files.length)return alert(t('alerts.selectImage'));try{let form=new FormData();form.append('image',input.files[0]);let result=await api('/api/placeholder-image',{method:'POST',body:form});cfg.placeholder_image=result.name;$('placeholder_source').value='uploaded-image';let base=$('public_base_url').value.trim().replace(/\/+$/,'')||window.location.origin;$('placeholder_url').value=base+result.url_path;renderPlaceholderImage();await saveConfig()}catch(e){alert(e.message)}}
-` + logoEditorJS + `
-async function bootstrap(){setupUI();try{await setLanguage(localStorage.getItem('tv-logo-monitor-language')||preferredLanguage());await status();await refreshReferences();setInterval(status,3000)}catch(e){renderStatusError(e)}}
+` + fillerJS + logoEditorJS + debugCaptureJS + channelThresholdJS + `
+async function bootstrap(){setupUI();try{await setLanguage(localStorage.getItem('tv-logo-monitor-language')||preferredLanguage());await status();setInterval(tickElapsedClock,1000);setInterval(status,3000);await refreshReferences()}catch(e){renderStatusError(e)}}
 bootstrap();
 </script></html>`

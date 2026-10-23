@@ -43,32 +43,56 @@ type KodiConfig struct {
 	Password string `json:"password"`
 }
 type Config struct {
-	HTTPAddr                        string     `json:"http_addr"`
-	M3UURL                          string     `json:"m3u_url"`
-	StreamURL                       string     `json:"stream_url"`
-	StreamName                      string     `json:"stream_name"`
-	PlaceholderPath                 string     `json:"placeholder_path"`
-	PlaceholderURL                  string     `json:"placeholder_url"`
-	PlaceholderImage                string     `json:"placeholder_image"`
-	PlaceholderSource               string     `json:"placeholder_source"`
-	KodiPlaceholder                 string     `json:"kodi_placeholder"`
-	KodiPlaceholders                []string   `json:"kodi_placeholders"`
-	PublicBaseURL                   string     `json:"public_base_url"`
-	LogoRect                        Rect       `json:"logo_rect"`
-	IntervalSeconds                 int        `json:"interval_seconds"`
-	MissingFrames                   int        `json:"missing_frames"`
-	PresentFrames                   int        `json:"present_frames"`
-	ProgramCooldownSeconds          int        `json:"program_cooldown_seconds"`
-	PlaceholderMinSeconds           int        `json:"placeholder_min_seconds"`
-	PauseDetectionDuringProgramLock bool       `json:"pause_detection_during_program_lock"`
-	SimilarityMinimum               float64    `json:"similarity_minimum"`
-	ContrastStrength                float64    `json:"contrast_strength"`
-	Kodi                            KodiConfig `json:"kodi"`
+	HTTPAddr                        string             `json:"http_addr"`
+	M3UURL                          string             `json:"m3u_url"`
+	StreamURL                       string             `json:"stream_url"`
+	StreamName                      string             `json:"stream_name"`
+	PlaceholderPath                 string             `json:"placeholder_path"`
+	PlaceholderURL                  string             `json:"placeholder_url"`
+	PlaceholderImage                string             `json:"placeholder_image"`
+	PlaceholderSource               string             `json:"placeholder_source"`
+	KodiPlaceholder                 string             `json:"kodi_placeholder"`
+	KodiPlaceholders                []string           `json:"kodi_placeholders"`
+	Fillers                         []Filler           `json:"fillers"`
+	FallbackFillerID                string             `json:"fallback_filler_id"`
+	PublicBaseURL                   string             `json:"public_base_url"`
+	LogoRect                        Rect               `json:"logo_rect"`
+	IntervalSeconds                 int                `json:"interval_seconds"`
+	MissingFrames                   int                `json:"missing_frames"`
+	PresentFrames                   int                `json:"present_frames"`
+	ProgramCooldownSeconds          int                `json:"program_cooldown_seconds"`
+	PlaceholderMinSeconds           int                `json:"placeholder_min_seconds"`
+	PauseDetectionDuringProgramLock bool               `json:"pause_detection_during_program_lock"`
+	SimilarityMinimum               float64            `json:"similarity_minimum"`
+	ChannelSimilarityMinimum        map[string]float64 `json:"channel_similarity_minimum,omitempty"`
+	ContrastStrength                float64            `json:"contrast_strength"`
+	DebugEnabled                    bool               `json:"debug_enabled"`
+	Kodi                            KodiConfig         `json:"kodi"`
 }
 
 func defaultConfig() Config {
 	return Config{HTTPAddr: "127.0.0.1:8099", IntervalSeconds: 2, MissingFrames: 3, PresentFrames: 3, ProgramCooldownSeconds: 600, PlaceholderMinSeconds: 30, PauseDetectionDuringProgramLock: true, SimilarityMinimum: .80, ContrastStrength: 1.5}
 }
+
+func (c Config) similarityMinimumFor(streamURL string) float64 {
+	if value, ok := c.ChannelSimilarityMinimum[streamURL]; ok {
+		return value
+	}
+	return c.SimilarityMinimum
+}
+
+func (c Config) validateChannelSimilarity() error {
+	for streamURL, value := range c.ChannelSimilarityMinimum {
+		if strings.TrimSpace(streamURL) == "" {
+			return errors.New("channel similarity thresholds require a non-empty stream URL")
+		}
+		if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 || value > 1 {
+			return errors.New("channel similarity thresholds must be greater than 0 and at most 1; omit an entry to use the default")
+		}
+	}
+	return nil
+}
+
 func (c *Config) normalize() {
 	if c.HTTPAddr == "" {
 		c.HTTPAddr = "127.0.0.1:8099"
@@ -107,6 +131,7 @@ func (c *Config) normalize() {
 	if c.KodiPlaceholder == "" && len(c.KodiPlaceholders) > 0 {
 		c.KodiPlaceholder = c.KodiPlaceholders[0]
 	}
+	c.migrateFillers()
 }
 
 func normalizedKodiPlaceholders(values []string) []string {
@@ -144,6 +169,7 @@ type Status struct {
 	Similarity               float64     `json:"similarity"`
 	LastFrame                string      `json:"last_frame,omitempty"`
 	LastError                string      `json:"last_error,omitempty"`
+	DebugError               string      `json:"debug_error,omitempty"`
 	Misses                   int         `json:"misses"`
 	Matches                  int         `json:"matches"`
 	ManualPlaceholder        bool        `json:"manual_placeholder"`
@@ -153,6 +179,8 @@ type Status struct {
 	DetectionPaused          bool        `json:"detection_paused"`
 	ProgramElapsedSeconds    int         `json:"program_elapsed_seconds"`
 	AdvertElapsedSeconds     int         `json:"advert_elapsed_seconds"`
+	ProgramStartedAt         string      `json:"program_started_at,omitempty"`
+	AdvertStartedAt          string      `json:"advert_started_at,omitempty"`
 }
 type ReferenceEntry struct {
 	MaskSource string `json:"mask_source,omitempty"`
@@ -176,6 +204,8 @@ type App struct {
 	logoCapture           *logoCapture
 	logoDiagnostic        *logoDiagnostic
 	logoDiagnosticHistory []*logoDiagnostic
+	debugFrames           []debugFrame
+	debugMu               sync.Mutex
 	mu                    sync.RWMutex
 	refMu                 sync.Mutex
 	cfg                   Config
@@ -191,6 +221,9 @@ type App struct {
 	advertStartedAt       time.Time
 	configPath, dataDir   string
 	status                Status
+	lastFillerID          string
+	currentFillerTarget   string
+	currentFillerImage    string
 	lastFrame             Frame
 	previewFrame          Frame
 	cancel                context.CancelFunc
@@ -214,6 +247,12 @@ func main() {
 		log.Fatal(err)
 	}
 	a.cfg.normalize()
+	if err := a.cfg.validateChannelSimilarity(); err != nil {
+		log.Fatal(err)
+	}
+	if err := a.cfg.validateFillers(); err != nil {
+		log.Fatal(err)
+	}
 	if *httpAddr != "" {
 		a.cfg.HTTPAddr = *httpAddr
 	}
@@ -260,6 +299,8 @@ func (a *App) routes(m *http.ServeMux) {
 	m.HandleFunc("/api/logo-capture", a.handleLogoCapture)
 	m.HandleFunc("/api/logo-mask", a.handleLogoMask)
 	m.HandleFunc("/api/logo-diagnostic", a.handleLogoDiagnostic)
+	m.HandleFunc("/api/debug-captures", a.handleDebugCaptures)
+	m.HandleFunc("/api/debug-captures/", a.handleDebugCapture)
 	m.HandleFunc("/api/start", a.handleStart)
 	m.HandleFunc("/api/stop", a.handleStop)
 	m.HandleFunc("/api/play/sender", a.handlePlaySender)
@@ -325,9 +366,15 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.ProgramCooldownActive = programCooldownUntil.After(now)
 	s.ProgramElapsedSeconds = elapsedSeconds(programStartedAt, now)
 	s.AdvertElapsedSeconds = elapsedSeconds(advertStartedAt, now)
+	if !programStartedAt.IsZero() {
+		s.ProgramStartedAt = programStartedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if !advertStartedAt.IsZero() {
+		s.AdvertStartedAt = advertStartedAt.UTC().Format(time.RFC3339Nano)
+	}
 	c.Kodi.Password = ""
 	refs, _ := a.referencesFor(active.URL)
-	writeJSON(w, map[string]any{"status": s, "config": c, "active_channel": active, "has_reference": len(refs) > 0, "reference_count": len(refs)})
+	writeJSON(w, map[string]any{"status": s, "config": c, "active_channel": active, "has_reference": len(refs) > 0, "reference_count": len(refs), "filler_timezone": time.Local.String() + ", " + now.Format("MST (UTC-07:00)")})
 }
 
 func cooldownRemaining(until, now time.Time) int {
@@ -353,6 +400,14 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n.normalize()
+	if err := n.validateChannelSimilarity(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := n.validateFillers(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	a.mu.Lock()
 	running := a.status.Running || a.status.DetectionPaused || a.cancel != nil
 	if n.Kodi.Password == "" {
@@ -371,6 +426,10 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 	a.status.Running = false
 	a.status.DetectionPaused = false
 	a.cfg = n
+	if !n.DebugEnabled {
+		a.debugFrames = nil
+		a.status.DebugError = ""
+	}
 	a.mu.Unlock()
 	if e := a.saveConfig(); e != nil {
 		http.Error(w, e.Error(), 500)
@@ -564,8 +623,9 @@ func (a *App) syncKodiPlayback() {
 	a.mu.RLock()
 	channels := append([]Channel(nil), a.playlist...)
 	kodiChannels := append([]KodiChannel(nil), a.kodiChannels...)
+	currentFillerTarget := a.currentFillerTarget
 	a.mu.RUnlock()
-	if isPlaceholderTarget(file, cfg) {
+	if isPlaceholderTarget(file, cfg) || (currentFillerTarget != "" && sameStreamURL(file, currentFillerTarget)) {
 		return // Keep monitoring the source while Kodi displays our own placeholder.
 	}
 	if channel, ok := channelForKodiItem(channels, kodiChannels, item); ok {
@@ -744,6 +804,7 @@ func (a *App) setActiveChannel(channel Channel) {
 	a.status.LogoDetection = nil
 	a.logoDiagnostic = nil
 	a.logoDiagnosticHistory = nil
+	a.debugFrames = nil
 	if c := a.logoCapture; c != nil {
 		c.State, c.Error, c.frames = "error", "capture.channelChanged", nil
 	}
@@ -1279,70 +1340,6 @@ func imageExtension(contentType string) string {
 		return ""
 	}
 }
-func (a *App) handlePlaceholderImageUpload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
-	if err := r.ParseMultipartForm(20 << 20); err != nil {
-		http.Error(w, "image too large or invalid upload", 400)
-		return
-	}
-	file, _, err := r.FormFile("image")
-	if err != nil {
-		http.Error(w, "missing image field", 400)
-		return
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 20<<20))
-	if err != nil || len(data) == 0 {
-		http.Error(w, "could not read image", 400)
-		return
-	}
-	contentType := http.DetectContentType(data)
-	ext := imageExtension(contentType)
-	if ext == "" {
-		http.Error(w, "only JPG, PNG, GIF, WebP, and BMP images are supported", 400)
-		return
-	}
-	name := "placeholder-image" + ext
-	if err := os.WriteFile(a.placeholderImagePath(name), data, 0600); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	a.mu.Lock()
-	oldName := a.cfg.PlaceholderImage
-	a.cfg.PlaceholderImage = name
-	publicBaseURL := strings.TrimRight(a.cfg.PublicBaseURL, "/")
-	if publicBaseURL != "" {
-		a.cfg.PlaceholderURL = publicBaseURL + "/placeholder-image/" + name
-	}
-	a.mu.Unlock()
-	if err := a.saveConfig(); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	if oldName != "" && oldName != name {
-		_ = os.Remove(a.placeholderImagePath(oldName))
-	}
-	writeJSON(w, map[string]string{"name": name, "url_path": "/placeholder-image/" + name})
-}
-func (a *App) handlePlaceholderImage(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET required", http.StatusMethodNotAllowed)
-		return
-	}
-	name := strings.TrimPrefix(r.URL.Path, "/placeholder-image/")
-	a.mu.RLock()
-	configured := a.cfg.PlaceholderImage
-	a.mu.RUnlock()
-	if name == "" || name != configured {
-		http.NotFound(w, r)
-		return
-	}
-	http.ServeFile(w, r, a.placeholderImagePath(name))
-}
 func (a *App) startMonitor() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1480,6 +1477,7 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 	if active.URL == "" {
 		return nil
 	}
+	minimum := cfg.similarityMinimumFor(active.URL)
 	entries, e := a.referencesFor(active.URL)
 	if e != nil {
 		return e
@@ -1568,7 +1566,7 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 			if len(ref.features) < 8 || ref.cells < 3 {
 				continue
 			}
-			result := ref.find(f, &plane, cfg.SimilarityMinimum)
+			result := ref.find(f, &plane, minimum)
 			if bestRef == nil || betterLogoResult(result, best) {
 				best, bestRef = result, ref
 			}
@@ -1632,8 +1630,10 @@ func (a *App) observeLocked(present bool, score float64, cfg Config) {
 	}
 	toPlaceholder := !present && !programLocked && a.status.Misses >= cfg.MissingFrames && mode != "placeholder"
 	toSender := present && !placeholderLocked && a.status.Matches >= cfg.PresentFrames && mode == "placeholder"
+	var debugCapture *debugCapture
 	if toPlaceholder {
 		a.status.Mode = "switching-placeholder"
+		debugCapture = a.snapshotDebugCaptureLocked(cfg, now)
 	}
 	if toSender {
 		a.status.Mode = "switching-sender"
@@ -1644,7 +1644,14 @@ func (a *App) observeLocked(present bool, score float64, cfg Config) {
 		// Treat it as the beginning of an advertisement even if monitoring began
 		// after the logo had already disappeared.
 		if e := a.play("placeholder", true); e != nil {
+			a.mu.Lock()
+			if a.status.Mode == "switching-placeholder" {
+				a.status.Mode = mode
+			}
+			a.mu.Unlock()
 			a.setError(e)
+		} else if debugCapture != nil {
+			go a.saveDebugCaptureAndReport(debugCapture)
 		}
 	} else if toSender {
 		if e := a.switchToSender(true); e != nil {
@@ -1709,17 +1716,23 @@ func (a *App) switchToSender(knownProgramStart bool) error {
 // the next program or advertisement. Starting Kodi manually, or discovering
 // an already running channel, provides no such timing information.
 func (a *App) play(which string, knownPhaseStart bool) error {
-	a.protectKodiTransition()
 	a.mu.RLock()
 	cfg := a.cfg
+	lastFillerID := a.lastFillerID
 	active := a.active
 	if which == "sender" && active.KodiChannelID == nil {
 		active.KodiChannelID = uniqueKodiChannelID(a.kodiChannels, active.Name)
 	}
 	a.mu.RUnlock()
 	target := active.URL
+	var chosen Filler
 	if which == "placeholder" {
-		target = placeholderTarget(cfg)
+		var err error
+		chosen, err = chooseFiller(cfg, time.Now(), lastFillerID)
+		if err != nil {
+			return err
+		}
+		target = fillerTarget(cfg, chosen)
 	}
 	if target == "" {
 		return fmt.Errorf("%s URL is not configured", which)
@@ -1727,6 +1740,7 @@ func (a *App) play(which string, knownPhaseStart bool) error {
 	if cfg.Kodi.URL == "" {
 		return errors.New("Kodi JSON-RPC URL is not configured")
 	}
+	a.protectKodiTransition()
 	if err := a.clearKodiPlaylists(cfg.Kodi); err != nil {
 		return fmt.Errorf("clear Kodi playlists: %w", err)
 	}
@@ -1748,6 +1762,13 @@ func (a *App) play(which string, knownPhaseStart bool) error {
 	if err != nil {
 		return err
 	}
+	if which == "placeholder" {
+		a.mu.Lock()
+		a.lastFillerID = chosen.ID
+		a.currentFillerTarget = target
+		a.currentFillerImage = chosen.Image
+		a.mu.Unlock()
+	}
 	a.recordPlayback(which, cfg, knownPhaseStart)
 	return nil
 }
@@ -1758,6 +1779,7 @@ func (a *App) recordPlayback(which string, cfg Config, knownPhaseStart bool) {
 	a.status.Mode = which
 	a.status.LastError = ""
 	if which == "placeholder" {
+		a.debugFrames = nil
 		if knownPhaseStart {
 			a.placeholderMinUntil = cooldownDeadline(cfg.PlaceholderMinSeconds)
 			a.advertStartedAt = time.Now()
@@ -1799,6 +1821,14 @@ func placeholderTarget(cfg Config) string {
 // isPlaceholderTarget also recognizes an older configured local placeholder
 // while Kodi is still showing it after the selected entry has changed.
 func isPlaceholderTarget(file string, cfg Config) bool {
+	if cfg.Fillers != nil {
+		for _, f := range cfg.Fillers {
+			if target := fillerTarget(cfg, f); target != "" && sameStreamURL(file, target) {
+				return true
+			}
+		}
+		return false
+	}
 	if cfg.PlaceholderSource != "kodi-local" {
 		return sameStreamURL(file, placeholderTarget(cfg))
 	}

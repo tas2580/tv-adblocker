@@ -11,6 +11,8 @@ go build -o tv-logo-monitor .
 ./tv-logo-monitor -config config.json -data-dir data
 ```
 
+Run `go test ./...` for the automated checks. The optional browser interaction test uses headless Chrome: `go test ./... -args -filler-browser`. It uses fixture data and does not contact Kodi.
+
 Then open the local UI at `http://127.0.0.1:8099` and configure the M3U8 and Kodi JSON-RPC URLs once. The service loads the M3U8 automatically at startup, reads Kodi's active playback, and monitors the corresponding channel without manual selection. To create the first reference, switch Kodi to the desired channel and select “Load current image”.
 
 The interface follows the browser language by default (German or English). Users can choose either language from the selector in the top-right corner; that choice is retained in the browser.
@@ -29,11 +31,19 @@ The defaults check every two seconds and require three consecutive frames before
 
 While the program protection period is active, the status page offers “End protection now”. This ends only the current period and immediately resumes detection if it was paused by that protection. Manually stopped detection stays stopped; the configured duration still applies after the next automatically detected advertising break.
 
-## Image placeholder
+## Fillers and seasonal images
 
-Under “Image placeholder”, you can upload a JPG, PNG, GIF, WebP, or BMP. The service serves it from a URL with the appropriate file extension and writes that URL as the placeholder URL. If Kodi runs on another device, that device must be able to reach the URL: for example, start the service with `-http-addr 0.0.0.0:8099` and, if necessary, replace `localhost` in the automatically set address with the monitor host's LAN IP address.
+The “Fillers” tab manages one shared list of uploaded images and Kodi files or URLs. Upload one or several JPG, PNG, GIF, WebP, or BMP images (up to 20 MB each); uploads add new entries without replacing previous images. Kodi paths and URLs can be added one per line, for example `/storage/videos/placeholder.mp4` or `file:///storage/pictures/placeholder.jpg`. These paths are interpreted from Kodi's perspective. Enable entries with their checkboxes and save the selection.
 
-Alternatively, select a file or URL that Kodi itself can access under “Placeholder in use”, such as `/storage/videos/placeholder.mp4`, `file:///storage/pictures/placeholder.jpg`, or a Kodi-compatible network URL. Enter several Kodi files or URLs—one per line—and select the one to use from the list. These paths are interpreted exclusively from Kodi's perspective.
+Each automatic or manual switch randomly chooses one eligible filler for the entire break. Enabled seasonal fillers take priority over year-round entries. When at least two fillers are eligible, the last successfully played entry is excluded. The last selection is remembered until the service restarts.
+
+Each filler can be year-round, repeat annually using month/day boundaries, or have a one-time start and end date including the year. Both boundary days are included, using the server's local time zone shown in the UI. Annual ranges can cross New Year; February 29 only matches in leap years. A date change does not interrupt a filler already playing.
+
+Select a standard filler as a fallback. It is used when no enabled filler matches the current date, regardless of its own enabled state or date range. If neither an eligible entry nor a standard exists, the channel keeps playing and the switch reports an error. Removing the standard clears the fallback selection. Removing an entry leaves its stored image on disk and does not interrupt ongoing playback.
+
+Uploaded images use the public base URL under “Kodi & automation”. Kodi must be able to reach this address: for example, start the service with `-http-addr 0.0.0.0:8099` and use the monitor host's LAN IP instead of `localhost` when Kodi runs on another device. Uploading saves current settings first; successfully added images are kept if a later upload fails.
+
+Configuration uses a `fillers` array (ID, name, source, image or target, enabled, schedule) and `fallback_filler_id`. Schedule modes are `always`, `annual` (`MM-DD` boundaries), and `once` (`YYYY-MM-DD` boundaries). Existing single-image and Kodi-file configurations are migrated automatically, keeping the selected filler enabled and as the standard, with other entries initially disabled. An explicit empty array stays empty; legacy fields do not restore removed entries.
 
 ## Reference images
 
@@ -47,11 +57,17 @@ Review the green mask overlay and transparent preview, then use the include/excl
 
 Original `.rgb` references remain intact. Each new reference has a grayscale `.mask.png` sidecar and an `.auto-mask.png` proposal for resetting edits. Older references without sidecars receive an in-memory contour mask, and their existing contrast setting still applies until a mask is saved. Flat or unusable references cannot trigger automatic switching.
 
-The configured similarity threshold has an uncertainty band of ±0.03. Scores at least 0.03 above the threshold confirm presence; scores below its lower edge indicate absence. Shifted or resized matches use at least 0.85 as their base threshold. Uncertain frames reset both confirmation counters and do not switch Kodi. Existing protection periods and consecutive-frame requirements still apply.
+Under **Detection & timing**, the channel list lets you set an optional similarity threshold for each channel. Leave a field blank to use the current global default from the advanced settings; clearing an existing value restores that default. Save the settings to apply changes to running detection. Values must be greater than 0 and at most 1. Configuration and `/api/config` use the optional `channel_similarity_minimum` object, mapping stream URLs to numbers, for example `{"http://tv.test/stream": 0.75}`. Omit a channel entry to inherit `similarity_minimum`. Existing configurations need no changes. The mapping follows the stream URL, like logo references; a changed URL uses the default until configured again. Entries for channels temporarily absent from the playlist are retained.
+
+The selected channel threshold, or the global default, has an uncertainty band of ±0.03. Scores at least 0.03 above the threshold confirm presence; scores below its lower edge indicate absence. Shifted or resized matches use at least 0.85 as their base threshold. Uncertain frames reset both confirmation counters and do not switch Kodi. Existing protection periods and consecutive-frame requirements still apply. Debug recordings store the selected channel threshold and each frame's effective threshold.
 
 Under **Inspect logo detection** on the status page, load a snapshot with its crop, mask, location, scale, edge score, normalized structure score, and contour coverage. Export a ZIP labeled “logo present” or “logo missing” to collect real examples for calibration. Snapshot images and labels refer to the same frame; the last 32 snapshots are retained in memory. Improvements on real broadcasts still need verification against labeled programme and advertisement sequences.
 
+Enable **Debug mode for automatic switches** under “Detection & timing” to save the last ten evaluated full frames before each successful automatic switch to the placeholder. Open **Inspect saved switches** on the status page to step through each frame with its logo scores, effective threshold, reference, and consecutive-frame counts, or download the whole case as a ZIP. Up to ten cases are retained in `data/debug/` (or the configured `-data-dir`); older cases are removed automatically. Manual switches do not create cases. Disabling debug mode stops new recordings and leaves saved cases available. The JSON metadata contains the channel name but no stream URL or Kodi credentials.
+
 The additive API endpoints are `/api/logo-capture` (POST a rectangle to start; GET/DELETE with `?id=...`; POST with `?id=...` to save), `/api/logo-mask` (GET/PUT with `?id=...` or `?capture=...`; mask bytes are base64 JSON; `view=frame` or `view=transparent` returns an image), and `/api/logo-diagnostic` (GET a snapshot or image; POST `{ "present": true/false }` to export a labeled ZIP). Capture requires an active editor preview lease. `/api/status` adds `status.logo_detection`; uncertain observations omit `logo_present`.
+
+Debug recordings are available through GET `/api/debug-captures`, `/api/debug-captures/{id}`, `/api/debug-captures/{id}/frames/{index}`, and `/api/debug-captures/{id}/download`. The setting is `debug_enabled` in `config.json` and defaults to `false`.
 
 ## systemd
 

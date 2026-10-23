@@ -41,6 +41,7 @@ func (a *App) observeLogo(result LogoResult, ref *logoTemplate, frame Frame, cfg
 		result.Decision = "uncertain"
 	}
 	a.status.LogoDetection = &result
+	a.rememberDebugFrameLocked(result, frame)
 	if ref != nil && rectInside(frame, result.Rect) {
 		f := cropFrame(frame, result.Rect)
 		mask := make([]byte, f.W*f.H)
