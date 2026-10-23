@@ -4,7 +4,7 @@ A local Go service that watches an HLS/M3U stream with `ffmpeg` and switches Kod
 
 ## Requirements and startup
 
-`ffmpeg` must be available in `PATH`. Kodi needs an accessible JSON-RPC web server (typically `http://kodi-host:8080/jsonrpc`).
+Building from source requires Go 1.24 or newer. `ffmpeg` must be available in `PATH`. Kodi needs an accessible JSON-RPC web server (typically `http://kodi-host:8080/jsonrpc`). For Windows, follow the [installation instructions below](#windows-installation-powershell).
 
 ```sh
 go build -o tv-logo-monitor .
@@ -18,6 +18,74 @@ Then open the local UI at `http://127.0.0.1:8099` and configure the M3U8 and Kod
 The interface follows the browser language by default (German or English). Users can choose either language from the selector in the top-right corner; that choice is retained in the browser.
 
 The status page shows the current programme title below the channel name when Kodi supplies EPG data. It refreshes with playback polling and continues to show the monitored sender's programme while a placeholder is playing. If programme information is unavailable, the line is hidden.
+
+## Windows installation (PowerShell)
+
+### 1. Install the prerequisites
+
+- Install a current stable [Go release for Windows](https://go.dev/doc/install) using the MSI installer (at least Go 1.24). Choose the download for your processor architecture.
+- Download a Windows build through the **Windows EXE Files** links on the [FFmpeg download page](https://ffmpeg.org/download.html). Extract it so that `ffmpeg.exe` is located at, for example, `C:\Tools\ffmpeg\bin\ffmpeg.exe`.
+- Add `C:\Tools\ffmpeg\bin` to your user's `Path`: search the Windows Start menu for **Edit environment variables for your account**, select **Path**, then **Edit → New** and enter the directory containing `ffmpeg.exe`.
+- Install [Git for Windows](https://git-scm.com/install/windows) if you want to clone the repository. Alternatively, download and extract the repository ZIP in the next step.
+
+Close and reopen PowerShell after installation and changes to `Path`, then check:
+
+```powershell
+go version
+ffmpeg -version
+```
+
+Both commands should display their installed version. The monitor starts FFmpeg by name, so its directory must remain in `Path` when running the application.
+
+### 2. Download and build the monitor
+
+Choose a writable directory, for example your user profile, and run:
+
+```powershell
+Set-Location $env:USERPROFILE
+git clone https://github.com/tas2580/tvadblock.git
+Set-Location .\tvadblock
+go build -o tv-logo-monitor.exe .
+```
+
+Without Git, open the repository on GitHub, select **Code → Download ZIP**, extract the archive, and open PowerShell in the extracted directory containing `go.mod`. Then run the same `go build` command. Build the complete package with the final `.`; `go build main.go` omits required source files.
+
+### 3. Start and configure
+
+From the project directory, start the application:
+
+```powershell
+.\tv-logo-monitor.exe -config .\config.json -data-dir .\data
+```
+
+On a fresh installation, the application creates `config.json` and the `data` directory automatically. Existing settings and data are reused. Keep the PowerShell window open while the monitor runs; press **Ctrl+C** to stop it. Preserve `config.json` and `data` when updating the executable.
+
+Open <http://127.0.0.1:8099> in your browser. The interface follows your browser language and also offers a language selector.
+
+1. In Kodi, open **Settings → Services → Control**, enable **Allow remote control via HTTP**, and note the port, username, and password. See [Kodi's web server settings](https://kodi.wiki/view/Settings/Services/Control).
+2. In the monitor's **Kodi & Automation** tab, enter the M3U/M3U8 channel list URL and Kodi's JSON-RPC address, for example `http://127.0.0.1:8080/jsonrpc` when Kodi runs on this PC, or `http://192.168.1.50:8080/jsonrpc` for another device. Enter the Kodi credentials and save the settings. Use the port configured in Kodi.
+3. In **Fillers**, upload an image or add a file/URL accessible to Kodi, enable it, and select a standard filler as fallback. Save the selection. Local file paths refer to the device running Kodi.
+4. Start a TV channel in Kodi. In **Logo references**, select **Load current image**, mark the channel logo, and select **Save logo**. Repeat for each channel you want to monitor. Saving the first reference starts detection for that channel.
+
+### 4. Allow access from another device, if needed
+
+If Kodi runs on another device and should display uploaded images, it must be able to reach the monitor. Stop the monitor and restart it with:
+
+```powershell
+.\tv-logo-monitor.exe -config .\config.json -data-dir .\data -http-addr 0.0.0.0:8099
+```
+
+Use `ipconfig` to find the Windows PC's LAN IPv4 address. Under **Kodi & Automation**, set **Public base URL of this service** to that address, for example `http://192.168.1.20:8099`, and save. Use the Windows PC's address here; the Kodi JSON-RPC address still points to the device running Kodi.
+
+Allow inbound TCP port `8099` for the monitor on your private network in Windows Defender Firewall. Kodi's HTTP port, commonly `8080`, must also be reachable from the monitor. The monitor UI has no authentication; limit access to your trusted LAN. When everything runs on the same PC, the default `127.0.0.1:8099` binding is sufficient.
+
+### Troubleshooting
+
+- **`go` or `ffmpeg` is not recognized:** check the installation and `Path`, then reopen PowerShell. For FFmpeg, add the directory containing `ffmpeg.exe`, not the executable itself or the archive's top-level directory.
+- **The executable is not found:** run it from the build directory using the PowerShell prefix `.\`, as shown above.
+- **Port `8099` is already in use:** stop the other monitor instance or choose another port with `-http-addr 127.0.0.1:8100`, then open `http://127.0.0.1:8100`. For LAN use, bind to `0.0.0.0:8100` and update the public base URL and firewall rule accordingly.
+- **Kodi cannot be reached:** verify that Kodi is running, HTTP control is enabled, and its IP, port, credentials, and firewall settings match the monitor configuration.
+- **Uploaded fillers do not appear on a separate Kodi device:** check the public base URL and firewall. `localhost` and `127.0.0.1` on that device refer to Kodi itself.
 
 ## Operation and stream limit
 
