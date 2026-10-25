@@ -145,15 +145,6 @@ func temporalLogo(frames []Frame) (Frame, []byte, error) {
 		return Frame{}, nil, errors.New("capture.static")
 	}
 	w, h := frames[0].W, frames[0].H
-	ref := Frame{w, h, make([]byte, w*h*3)}
-	values := make([]int, len(frames))
-	for i := range ref.Pix {
-		for n, f := range frames {
-			values[n] = int(f.Pix[i])
-		}
-		sort.Ints(values)
-		ref.Pix[i] = byte(values[len(values)/2])
-	}
 	planes := make([]logoPlane, len(frames))
 	for n, f := range frames {
 		planes[n] = filteredLogo(f, w, h)
@@ -189,11 +180,58 @@ func temporalLogo(frames []Frame) (Frame, []byte, error) {
 			}
 		}
 	}
-	t := prepareLogo("", ref, Rect{W: w, H: h}, mask)
-	if len(t.features) < 8 || t.cells < 3 {
+	ref, ok := selectTemporalLogo(frames, mask)
+	if !ok {
 		return Frame{}, nil, errors.New("capture.noShape")
 	}
 	return ref, mask, nil
+}
+
+// Keep real logo detail rather than synthesizing a pixel-wise median, which
+// can erase transparent segments over changing backgrounds. A candidate must
+// work on the other frames, not just match itself or have the strongest edges.
+func selectTemporalLogo(frames []Frame, mask []byte) (Frame, bool) {
+	bestIndex, bestMatches := -1, -1
+	var bestQuartile, bestMean float64
+	var planes []logoPlane
+	for i, frame := range frames {
+		r := Rect{W: frame.W, H: frame.H}
+		t := prepareLogo("", frame, r, mask)
+		if len(t.features) < 8 || t.cells < 3 {
+			continue
+		}
+		if planes == nil {
+			planes = make([]logoPlane, len(frames))
+			for j, other := range frames {
+				planes[j] = filteredLogo(other, t.w, t.h)
+				planes[j].normalizeStructure()
+			}
+		}
+		matches, sum := 0, 0.0
+		scores := make([]float64, 0, len(frames)-1)
+		for j := range frames {
+			if i == j {
+				continue
+			}
+			// A fixed ranking threshold makes capture independent of settings;
+			// live detection still uses the configured channel threshold.
+			result := t.comparePreparedPlane(&planes[j], t.w, 0, LogoResult{Decision: "missing", Threshold: .75})
+			if result.Decision == "present" {
+				matches++
+			}
+			scores = append(scores, result.Score)
+			sum += result.Score
+		}
+		sort.Float64s(scores)
+		quartile, mean := scores[(len(scores)-1)/4], sum/float64(len(scores))
+		if matches > bestMatches || matches == bestMatches && (quartile > bestQuartile || quartile == bestQuartile && mean > bestMean) {
+			bestIndex, bestMatches, bestQuartile, bestMean = i, matches, quartile, mean
+		}
+	}
+	if bestIndex < 0 {
+		return Frame{}, false
+	}
+	return frames[bestIndex].clone(), true
 }
 
 // a.mu is held; only cropped frames are retained and at most once a second.

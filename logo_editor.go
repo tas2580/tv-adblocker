@@ -69,6 +69,7 @@ async function saveEditedMask(){
   try{
     await api(maskURL(),{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({pixels:maskBase64(state.pixels)})});
     if(state.capture){let ref=await api('/api/logo-capture?id='+encodeURIComponent(state.capture),{method:'POST'});captureID='';selectedReferenceID=ref.id;await openLogoMask(ref.id);await refreshReferences();await status()}
+    else await refreshReferences();
     $('mask-feedback').textContent=t('mask.saved');
   }catch(e){$('mask-feedback').textContent=logoError(e)}
 }
@@ -90,11 +91,19 @@ async function pollLogoCapture(){
   }catch(e){if(captureID!==id)return;clearInterval(captureTimer);captureID='';$('capture-start').disabled=false;$('capture-cancel').hidden=true;$('capture-progress').textContent=logoError(e)}
 }
 async function cancelLogoCapture(){let id=captureID;captureID='';clearInterval(captureTimer);captureTimer=null;$('capture-start').disabled=false;$('capture-cancel').hidden=true;$('capture-progress').textContent='';if(maskState?.capture===id)closeLogoMask();if(id)try{await api('/api/logo-capture?id='+encodeURIComponent(id),{method:'DELETE'})}catch(e){$('capture-progress').textContent=logoError(e)}}
+function logoColorDiagnosticText(r){
+  let text='';
+  if(r.logo_color){const c=r.logo_color;text+='\n'+t('diagnostic.logoColor',{r:Math.round(c.rgb[0]),g:Math.round(c.rgb[1]),b:Math.round(c.rgb[2]),confidence:Math.round(c.confidence*100),samples:c.samples})}
+  if(r.uncertainty_reason==='logo_color_low_contrast')text+='\n'+t('diagnostic.logoColorLowContrast');
+  if(r.uncertainty_reason==='logo_position_pending')text+='\n'+t('diagnostic.logoPositionPending');
+  return text;
+}
 async function refreshLogoDiagnostic(){
   try{
     let d=await api('/api/logo-diagnostic');diagnosticTime=d.time;let r=d.result;
     $('diagnostic-message').textContent='';$('diagnostic-content').hidden=false;
     $('diagnostic-values').textContent=t('diagnostic.values',{decision:t('decision.'+r.decision),score:r.score.toFixed(3),edge:r.edge_score.toFixed(3),structure:r.structure_score.toFixed(3),coverage:Math.round(r.coverage*100),reference:r.reference_id||'–',x:r.rect.x,y:r.rect.y,w:r.rect.w,h:r.rect.h,scale:Math.round(r.scale*100),threshold:r.threshold.toFixed(2)});
+    $('diagnostic-values').textContent+=logoColorDiagnosticText(r);
     $('diagnostic-frame').alt=t('diagnostic.frame');$('diagnostic-mask').alt=t('mask.transparent');
     $('diagnostic-frame').src='/api/logo-diagnostic?view=frame&time='+encodeURIComponent(d.time);$('diagnostic-mask').src='/api/logo-diagnostic?view=mask&time='+encodeURIComponent(d.time);
   }catch(e){$('diagnostic-content').hidden=true;$('diagnostic-message').textContent=logoError(e)}

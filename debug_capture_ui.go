@@ -44,5 +44,6 @@ function renderDebugFrame(){
   $('debug-frame-image').src='/api/debug-captures/'+encodeURIComponent(c.id)+'/frames/'+index;
   $('debug-frame-image').alt=t('debug.imageAlt',{number:index+1});
   $('debug-frame-values').textContent=t('debug.frameValues',{decision:t('decision.'+r.decision),score:r.score.toFixed(3),threshold:r.threshold.toFixed(3),edge:r.edge_score.toFixed(3),structure:r.structure_score.toFixed(3),coverage:Math.round(r.coverage*100),reference:r.reference_id||'–',misses:f.misses,required:c.missing_frames,matches:f.matches,x:r.rect.x,y:r.rect.y,w:r.rect.w,h:r.rect.h,scale:Math.round(r.scale*100)});
+  $('debug-frame-values').textContent+=logoColorDiagnosticText(r);
 }
 `

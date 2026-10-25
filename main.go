@@ -204,6 +204,7 @@ type App struct {
 	logoCapture           *logoCapture
 	logoDiagnostic        *logoDiagnostic
 	logoDiagnosticHistory []*logoDiagnostic
+	referenceLearning     *referenceLearningSession
 	debugFrames           []debugFrame
 	debugMu               sync.Mutex
 	mu                    sync.RWMutex
@@ -1132,13 +1133,24 @@ func (a *App) handleReferences(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.RLock()
 	streamURL := a.active.URL
+	contrast := a.cfg.ContrastStrength
 	a.mu.RUnlock()
 	entries, err := a.referencesFor(streamURL)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	writeJSON(w, entries)
+	live := a.referenceColorSnapshot(streamURL)
+	details := make([]referenceDetails, 0, len(entries))
+	for _, entry := range entries {
+		data := a.inspectReferenceData(entry, contrast)
+		if color, ok := live[entry.ID]; ok && data.ShapeUsable {
+			data.Color = color
+		}
+		details = append(details, referenceDetails{ReferenceEntry: entry, Data: data})
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, details)
 }
 func (a *App) handleReferenceItem(w http.ResponseWriter, r *http.Request) {
 	part := strings.TrimPrefix(r.URL.Path, "/api/references/")
@@ -1503,6 +1515,11 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 		}
 		refs = append(refs, prepared)
 	}
+	var learning *referenceLearningSession
+	if !setup {
+		learning = a.beginReferenceLearning(ctx, active.URL, refs)
+		defer a.endReferenceLearning(learning)
+	}
 	filter := fmt.Sprintf("fps=1/%d,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2", cfg.IntervalSeconds, frameWidth, frameHeight, frameWidth, frameHeight)
 	args := []string{"-hide_banner", "-loglevel", "error"}
 	if setup {
@@ -1571,6 +1588,7 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 				best, bestRef = result, ref
 			}
 		}
+		a.publishReferenceLearning(learning, refs)
 		if ctx.Err() != nil {
 			return nil
 		}

@@ -125,7 +125,11 @@ type logoTemplate struct {
 	cells          int
 	last           Rect
 	lastScale      float64
+	pending        Rect
+	pendingScale   float64
+	pendingFrames  int
 	legacyContrast float64
+	color          logoColorModel
 }
 
 func prepareLogo(id string, ref Frame, rect Rect, mask []byte) *logoTemplate {
@@ -164,15 +168,17 @@ func prepareLogo(id string, ref Frame, rect Rect, mask []byte) *logoTemplate {
 }
 
 type LogoResult struct {
-	Decision       string  `json:"decision"`
-	ReferenceID    string  `json:"reference_id,omitempty"`
-	Rect           Rect    `json:"rect"`
-	Scale          float64 `json:"scale"`
-	Score          float64 `json:"score"`
-	EdgeScore      float64 `json:"edge_score"`
-	StructureScore float64 `json:"structure_score"`
-	Coverage       float64 `json:"coverage"`
-	Threshold      float64 `json:"threshold"`
+	Decision          string             `json:"decision"`
+	ReferenceID       string             `json:"reference_id,omitempty"`
+	Rect              Rect               `json:"rect"`
+	Scale             float64            `json:"scale"`
+	Score             float64            `json:"score"`
+	EdgeScore         float64            `json:"edge_score"`
+	StructureScore    float64            `json:"structure_score"`
+	Coverage          float64            `json:"coverage"`
+	Threshold         float64            `json:"threshold"`
+	LogoColor         *LogoColorEstimate `json:"logo_color,omitempty"`
+	UncertaintyReason string             `json:"uncertainty_reason,omitempty"`
 }
 
 func logoDecision(score, threshold float64) string {
@@ -213,6 +219,12 @@ func (t *logoTemplate) comparePlane(frame Frame, r Rect, scale, minimum float64,
 		p = filteredLogo(crop, t.w, t.h)
 		p.normalizeStructure()
 	}
+	return t.comparePreparedPlane(&p, stride, base, out)
+}
+
+// The capture selector reuses normalized planes across all candidate pairs.
+// Live detection supplies either a crop plane or an offset in the full frame.
+func (t *logoTemplate) comparePreparedPlane(p *logoPlane, stride, base int, out LogoResult) LogoResult {
 	var dot, fe, re, total, matched float64
 	var cells [16]bool
 	for _, e := range t.features {
@@ -265,15 +277,42 @@ func (t *logoTemplate) comparePlane(frame Frame, r Rect, scale, minimum float64,
 		out.StructureScore = math.Min(1, math.Abs(cov)/math.Sqrt(fv*rv))
 	}
 	out.Score = .85*(.7*out.EdgeScore+.3*out.Coverage) + .15*out.StructureScore
-	out.Decision = logoDecision(out.Score, threshold)
+	out.Decision = logoDecision(out.Score, out.Threshold)
 	return out
 }
 
 // All templates share the decoded frame's gradient map. Full mask comparisons
 // run only for the strongest spatially distinct candidates.
 func (t *logoTemplate) find(frame Frame, plane *logoPlane, minimum float64) LogoResult {
+	best := t.findShape(frame, plane, minimum)
+	if best.Decision == "present" {
+		t.learnLogoColor(frame, best.Rect)
+	}
+	// Search for a real shape first. Colour alone must never confirm presence,
+	// move the tracked position, or hide a confirmed match from another reference.
+	if best.Decision == "missing" {
+		for _, position := range []struct {
+			rect  Rect
+			scale float64
+		}{{t.last, t.lastScale}, {t.rect, 1}} {
+			if t.logoColorHidden(frame, position.rect) {
+				best = t.compare(frame, position.rect, position.scale, minimum)
+				best.Decision, best.UncertaintyReason = "uncertain", "logo_color_low_contrast"
+				break
+			}
+		}
+	}
+	if t.color.estimate != nil {
+		estimate := *t.color.estimate
+		best.LogoColor = &estimate
+	}
+	return best
+}
+
+func (t *logoTemplate) findShape(frame Frame, plane *logoPlane, minimum float64) LogoResult {
 	best := t.compare(frame, t.last, t.lastScale, minimum)
 	if best.Decision == "present" {
+		t.pendingFrames = 0
 		return best
 	}
 	if t.last != t.rect {
@@ -282,58 +321,131 @@ func (t *logoTemplate) find(frame Frame, plane *logoPlane, minimum float64) Logo
 		}
 		if best.Decision == "present" {
 			t.last, t.lastScale = best.Rect, best.Scale
+			t.pendingFrames = 0
 			return best
 		}
 	}
 	if len(t.coarse) < 8 || t.cells < 3 {
+		t.pendingFrames = 0
 		return best
 	}
 	if plane.w == 0 {
 		*plane = filteredLogo(frame, frame.W, frame.H)
 	}
-	minX, maxX := max(0, t.rect.X-logoSearchX), min(frame.W-t.rect.W, t.rect.X+logoSearchX)
-	minY, maxY := max(0, t.rect.Y-logoSearchY), min(frame.H-t.rect.H, t.rect.Y+logoSearchY)
-	type candidate struct {
-		x, y, w, h   int
-		scale, score float64
+	scales := t.prepareSearchScales(frame)
+	best = t.searchShape(frame, plane, minimum, scales, false, best)
+	if best.Decision == "present" {
+		t.last, t.lastScale = best.Rect, best.Scale
+		t.pendingFrames = 0
+		return best
 	}
-	var candidates []candidate
+	// Each stage has its own candidate budget: nearby background contours must
+	// not crowd a genuine distant logo out of the full-corner search.
+	best = t.searchShape(frame, plane, minimum, scales, true, best)
+	if best.Decision != "present" {
+		t.pendingFrames = 0
+		return best
+	}
+	if t.pendingFrames == 0 || best.Scale != t.pendingScale || absInt(best.Rect.X-t.pending.X) > 4 || absInt(best.Rect.Y-t.pending.Y) > 4 {
+		t.pending, t.pendingScale, t.pendingFrames = best.Rect, best.Scale, 1
+	} else {
+		t.pendingFrames++
+	}
+	if t.pendingFrames < 3 {
+		best.Decision, best.UncertaintyReason = "uncertain", "logo_position_pending"
+	} else {
+		t.last, t.lastScale = best.Rect, best.Scale
+		t.pendingFrames = 0
+	}
+	return best
+}
+
+type logoSearchBounds struct {
+	minX, maxX, minY, maxY int
+}
+
+func (b logoSearchBounds) contains(x, y int) bool {
+	return x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY
+}
+
+type logoSearchPoint struct {
+	offset         int
+	dx, dy, weight float64
+}
+
+type logoSearchScale struct {
+	w, h          int
+	scale, energy float64
+	points        []logoSearchPoint
+	local, corner logoSearchBounds
+}
+
+func (t *logoTemplate) prepareSearchScales(frame Frame) []logoSearchScale {
+	scales := make([]logoSearchScale, 0, 5)
 	for _, s := range []float64{1, .95, 1.05, .9, 1.1} {
 		w, h := max(8, int(math.Round(float64(t.rect.W)*s))), max(8, int(math.Round(float64(t.rect.H)*s)))
-		type point struct {
-			offset         int
-			dx, dy, weight float64
+		corner := logoSearchBounds{0, frame.W - w, 0, frame.H - h}
+		// Keep the logo centre in the reference's quadrant, including during
+		// candidate refinement and for logos touching a frame boundary.
+		if t.rect.X+t.rect.W/2 < frame.W/2 {
+			corner.maxX = min(corner.maxX, frame.W/2-w/2-1)
+		} else {
+			corner.minX = max(corner.minX, frame.W/2-w/2)
 		}
-		points := make([]point, len(t.coarse))
-		var re float64
+		if t.rect.Y+t.rect.H/2 < frame.H/2 {
+			corner.maxY = min(corner.maxY, frame.H/2-h/2-1)
+		} else {
+			corner.minY = max(corner.minY, frame.H/2-h/2)
+		}
+		local := logoSearchBounds{
+			max(corner.minX, t.rect.X-logoSearchX), min(corner.maxX, t.rect.X+logoSearchX),
+			max(corner.minY, t.rect.Y-logoSearchY), min(corner.maxY, t.rect.Y+logoSearchY),
+		}
+		search := logoSearchScale{w: w, h: h, scale: s, local: local, corner: corner, points: make([]logoSearchPoint, len(t.coarse))}
 		for i, e := range t.coarse {
-			points[i] = point{e.y*h/t.h*frame.W + e.x*w/t.w, e.dx * e.weight, e.dy * e.weight, e.weight}
-			re += e.weight * (e.dx*e.dx + e.dy*e.dy)
+			search.points[i] = logoSearchPoint{e.y*h/t.h*frame.W + e.x*w/t.w, e.dx * e.weight, e.dy * e.weight, e.weight}
+			search.energy += e.weight * (e.dx*e.dx + e.dy*e.dy)
 		}
-		for y := minY; y <= min(maxY, frame.H-h); y += 2 {
-			for x := minX; x <= min(maxX, frame.W-w); x += 2 {
-				if (x+w/2 < frame.W/2) != (t.rect.X+t.rect.W/2 < frame.W/2) || (y+h/2 < frame.H/2) != (t.rect.Y+t.rect.H/2 < frame.H/2) {
+		scales = append(scales, search)
+	}
+	return scales
+}
+
+func (t *logoTemplate) searchShape(frame Frame, plane *logoPlane, minimum float64, scales []logoSearchScale, expanded bool, best LogoResult) LogoResult {
+	type candidate struct {
+		x, y, size int
+		score      float64
+	}
+	var candidates []candidate
+	for size, s := range scales {
+		bounds := s.local
+		if expanded {
+			bounds = s.corner
+		}
+		for y := bounds.minY; y <= bounds.maxY; y += logoSearchStep {
+			for x := bounds.minX; x <= bounds.maxX; x += logoSearchStep {
+				if expanded && s.local.contains(x, y) {
 					continue
 				}
 				var dot, fe float64
 				base := y*frame.W + x
-				for _, e := range points {
+				for _, e := range s.points {
 					i := base + e.offset
 					dx, dy := plane.dx[i], plane.dy[i]
 					dot += dx*e.dx + dy*e.dy
 					fe += e.weight * (dx*dx + dy*dy)
 				}
-				if fe < 1 || re < 1 {
+				if fe < 1 || s.energy < 1 {
 					continue
 				}
-				score := math.Abs(dot) / math.Sqrt(fe*re)
+				score := math.Abs(dot) / math.Sqrt(fe*s.energy)
 				if score < .35 || len(candidates) == 12 && score <= candidates[11].score {
 					continue
 				}
-				c := candidate{x, y, w, h, s, score}
+				c := candidate{x, y, size, score}
 				duplicate := -1
 				for i, old := range candidates {
-					if absInt(x-old.x) < 8 && absInt(y-old.y) < 8 && s == old.scale {
+					if absInt(x-old.x) < 8 && absInt(y-old.y) < 8 && size == old.size {
 						duplicate = i
 						break
 					}
@@ -353,18 +465,20 @@ func (t *logoTemplate) find(frame Frame, plane *logoPlane, minimum float64) Logo
 		}
 	}
 	for _, c := range candidates {
+		s := scales[c.size]
 		for dy := -2; dy <= 2; dy++ {
 			for dx := -2; dx <= 2; dx++ {
-				r := t.comparePlane(frame, Rect{c.x + dx, c.y + dy, c.w, c.h}, c.scale, minimum, plane)
+				x, y := c.x+dx, c.y+dy
+				if !s.corner.contains(x, y) || expanded && s.local.contains(x, y) || !expanded && !s.local.contains(x, y) {
+					continue
+				}
+				r := t.comparePlane(frame, Rect{x, y, s.w, s.h}, s.scale, minimum, plane)
 				// Prefer confirmed matches over a higher score subject to a stricter threshold.
 				if betterLogoResult(r, best) {
 					best = r
 				}
 			}
 		}
-	}
-	if best.Decision == "present" {
-		t.last, t.lastScale = best.Rect, best.Scale
 	}
 	return best
 }
