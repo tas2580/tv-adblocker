@@ -82,7 +82,7 @@ func TestDebugCaptureFollowsSuccessfulAutomaticSwitch(t *testing.T) {
 	}
 	a.observeLogo(debugMissingResult(), ref, frame, cfg, a.active.URL)
 	capture := waitForDebugCapture(t, a)
-	if capture.Channel != "Test" || capture.MissingFrames != 2 || capture.SimilarityMinimum != cfg.SimilarityMinimum || len(capture.Frames) != 2 {
+	if capture.Direction != debugToPlaceholder || capture.Channel != "Test" || capture.MissingFrames != 2 || capture.SimilarityMinimum != cfg.SimilarityMinimum || len(capture.Frames) != 2 {
 		t.Fatalf("unexpected metadata: %+v", capture)
 	}
 	if capture.Frames[0].Misses != 1 || capture.Frames[1].Misses != 2 || capture.Frames[1].Result.Score != .3 {
@@ -118,6 +118,103 @@ func TestDebugCaptureFollowsSuccessfulAutomaticSwitch(t *testing.T) {
 	z, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
 	if err != nil || len(z.File) != 3 {
 		t.Fatalf("ZIP files: %v, err: %v", z, err)
+	}
+}
+
+func TestDebugCaptureFollowsSuccessfulAutomaticReturn(t *testing.T) {
+	a, cfg, ref, frame := debugTestApp(t, true, false)
+	a.status.Mode = "placeholder"
+	a.placeholderMinUntil = time.Now().Add(time.Minute)
+	present := debugMissingResult()
+	present.Decision, present.Score = "present", .95
+	for i := 0; i < 2; i++ {
+		a.observeLogo(present, ref, frame, cfg, a.active.URL)
+	}
+	if a.status.Matches != 0 || a.status.Mode != "placeholder" {
+		t.Fatal("placeholder minimum did not prevent automatic return")
+	}
+	a.placeholderMinUntil = time.Time{}
+	for i := 1; i < cfg.PresentFrames; i++ {
+		a.observeLogo(present, ref, frame, cfg, a.active.URL)
+	}
+	if entries, _ := os.ReadDir(a.debugDir()); len(entries) != 0 {
+		t.Fatal("capture saved before the required present frame count")
+	}
+	a.observeLogo(present, ref, frame, cfg, a.active.URL)
+	capture := waitForDebugCapture(t, a)
+	if capture.Direction != debugToSender || capture.PresentFrames != cfg.PresentFrames || len(capture.Frames) != 2+cfg.PresentFrames {
+		t.Fatalf("unexpected return metadata: %+v", capture)
+	}
+	for i, sample := range capture.Frames {
+		want := max(0, i-1)
+		if sample.Matches != want || sample.Misses != 0 || sample.Result.Decision != "present" || sample.Result.Score != .95 {
+			t.Fatalf("return frame %d: %+v, want %d matches", i, sample, want)
+		}
+	}
+	if a.status.Mode != "sender" || len(a.debugFrames) != 0 {
+		t.Fatal("automatic return did not start a fresh debug frame history")
+	}
+	// The snapshot must keep its frames after recordPlayback clears the buffer.
+	w := httptest.NewRecorder()
+	a.handleDebugCapture(w, httptest.NewRequest(http.MethodGet, "/api/debug-captures/"+capture.ID+"/frames/4", nil))
+	if _, err := jpeg.Decode(bytes.NewReader(w.Body.Bytes())); w.Code != 200 || err != nil {
+		t.Fatalf("return frame image: status %d, %v", w.Code, err)
+	}
+}
+
+func TestDebugCaptureReturnRequiresEnabledSuccessfulAutomaticSwitch(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		enabled  bool
+		failOpen bool
+		manual   bool
+	}{
+		{name: "disabled", enabled: false},
+		{name: "failed return", enabled: true, failOpen: true},
+		{name: "manual placeholder", enabled: true, manual: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, cfg, ref, frame := debugTestApp(t, tc.enabled, tc.failOpen)
+			a.status.Mode, a.status.ManualPlaceholder = "placeholder", tc.manual
+			present := debugMissingResult()
+			present.Decision = "present"
+			for i := 0; i < cfg.PresentFrames; i++ {
+				a.observeLogo(present, ref, frame, cfg, a.active.URL)
+			}
+			if tc.manual {
+				w := httptest.NewRecorder()
+				a.handlePlaySender(w, httptest.NewRequest(http.MethodPost, "/api/play/sender", nil))
+				if w.Code != 200 {
+					t.Fatalf("manual return: %d: %s", w.Code, w.Body.String())
+				}
+			}
+			if entries, _ := os.ReadDir(a.debugDir()); len(entries) != 0 {
+				t.Fatalf("unexpected return capture: %v", entries)
+			}
+		})
+	}
+}
+
+func TestDebugCaptureLegacyDirection(t *testing.T) {
+	a, _, _, _ := debugTestApp(t, true, false)
+	id := "20261022T120000.000000000Z"
+	dir := filepath.Join(a.debugDir(), id)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "metadata.json"), []byte(`{"id":"`+id+`","frames":[]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/debug-captures", "/api/debug-captures/" + id} {
+		w := httptest.NewRecorder()
+		if path == "/api/debug-captures" {
+			a.handleDebugCaptures(w, httptest.NewRequest(http.MethodGet, path, nil))
+		} else {
+			a.handleDebugCapture(w, httptest.NewRequest(http.MethodGet, path, nil))
+		}
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"direction":"to-placeholder"`) {
+			t.Fatalf("legacy direction for %s: %d: %s", path, w.Code, w.Body.String())
+		}
 	}
 }
 

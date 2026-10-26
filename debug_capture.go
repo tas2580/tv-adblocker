@@ -21,21 +21,28 @@ import (
 const debugFrameLimit = 10
 const debugCaptureLimit = 10
 
+const (
+	debugToPlaceholder = "to-placeholder"
+	debugToSender      = "to-sender"
+)
+
 var debugCaptureIDPattern = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}\.[0-9]{9}Z$`)
 
 type debugFrame struct {
-	Time    string     `json:"time"`
-	Image   string     `json:"image"`
-	Result  LogoResult `json:"result"`
-	Misses  int        `json:"misses"`
-	Matches int        `json:"matches"`
-	frame   Frame
+	Detection *DetectionStatus `json:"detection,omitempty"`
+	Time      string           `json:"time"`
+	Image     string           `json:"image"`
+	Result    LogoResult       `json:"result"`
+	Misses    int              `json:"misses"`
+	Matches   int              `json:"matches"`
+	frame     Frame
 }
 
 type debugCapture struct {
 	ID                string       `json:"id"`
 	Time              string       `json:"time"`
 	Channel           string       `json:"channel"`
+	Direction         string       `json:"direction"`
 	IntervalSeconds   int          `json:"interval_seconds"`
 	MissingFrames     int          `json:"missing_frames"`
 	PresentFrames     int          `json:"present_frames"`
@@ -50,7 +57,7 @@ func (a *App) rememberDebugFrameLocked(result LogoResult, frame Frame) {
 	if !a.cfg.DebugEnabled {
 		return
 	}
-	entry := debugFrame{Time: time.Now().UTC().Format(time.RFC3339Nano), Result: result, frame: frame}
+	entry := debugFrame{Time: time.Now().UTC().Format(time.RFC3339Nano), Result: result, frame: frame, Detection: a.status.Detection}
 	switch result.Decision {
 	case "missing":
 		entry.Misses = a.status.Misses + 1
@@ -71,7 +78,7 @@ func (a *App) rememberDebugFrameLocked(result LogoResult, frame Frame) {
 }
 
 // Caller holds a.mu. The returned frames remain immutable after this point.
-func (a *App) snapshotDebugCaptureLocked(cfg Config, now time.Time) *debugCapture {
+func (a *App) snapshotDebugCaptureLocked(cfg Config, now time.Time, direction string) *debugCapture {
 	if !a.cfg.DebugEnabled || len(a.debugFrames) == 0 {
 		return nil
 	}
@@ -79,6 +86,7 @@ func (a *App) snapshotDebugCaptureLocked(cfg Config, now time.Time) *debugCaptur
 		ID:                now.UTC().Format("20060102T150405.000000000Z"),
 		Time:              now.UTC().Format(time.RFC3339Nano),
 		Channel:           a.active.Name,
+		Direction:         direction,
 		IntervalSeconds:   cfg.IntervalSeconds,
 		MissingFrames:     cfg.MissingFrames,
 		PresentFrames:     cfg.PresentFrames,
@@ -193,6 +201,10 @@ func (a *App) readDebugCapture(id string) (*debugCapture, error) {
 	var capture debugCapture
 	if err := json.Unmarshal(b, &capture); err != nil {
 		return nil, err
+	}
+	// Older recordings only captured switches to the placeholder.
+	if capture.Direction == "" {
+		capture.Direction = debugToPlaceholder
 	}
 	return &capture, nil
 }

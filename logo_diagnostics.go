@@ -32,8 +32,12 @@ func (a *App) diagnosticSnapshot(stamp string) *logoDiagnostic {
 }
 
 func (a *App) observeLogo(result LogoResult, ref *logoTemplate, frame Frame, cfg Config, streamURL string) {
+	a.observeLogoSample(result, ref, frame, cfg, streamURL, nil)
+}
+
+func (a *App) observeLogoSample(result LogoResult, ref *logoTemplate, frame Frame, cfg Config, streamURL string, sample *DetectionObservation) {
 	a.mu.Lock()
-	if a.active.URL != streamURL {
+	if a.active.URL != streamURL || sample != nil && sample.ctx != nil && sample.ctx.Err() != nil {
 		a.mu.Unlock()
 		return
 	}
@@ -41,6 +45,7 @@ func (a *App) observeLogo(result LogoResult, ref *logoTemplate, frame Frame, cfg
 		result.Decision = "uncertain"
 	}
 	a.status.LogoDetection = &result
+	a.evaluateDetectionLocked(result, cfg, sample)
 	a.rememberDebugFrameLocked(result, frame)
 	if ref != nil && rectInside(frame, result.Rect) {
 		f := cropFrame(frame, result.Rect)

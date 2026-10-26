@@ -13,6 +13,7 @@ function renderReferenceData(box,ref){
     term.textContent=t(label)+': ';description.textContent=value;line.append(term,description);list.append(line);return description;
   }
   const availability=state=>t('logos.data.'+(state||'missing'));
+  if(ref.automatic)row('detection.autoReferences',t('detection.validation',{rate:Math.round((ref.validation_rate||0)*100),date:ref.validated_at||'–'}));
   row('logos.dataImage',availability(data.image));
   row('logos.dataSource',t('logos.source.'+data.source));
   row('logos.dataMask',availability(data.mask));
@@ -36,9 +37,9 @@ function createReferenceCard(){
   const card=document.createElement('article');card.className='reference';
   const open=document.createElement('button');open.type='button';open.className='reference-open';open.setAttribute('aria-label',t('logos.showPosition'));
   const image=document.createElement('img');image.alt=t('logos.referenceAlt');open.append(image);
-  const label=document.createElement('small'),data=document.createElement('div'),remove=document.createElement('button');remove.type='button';
-  card.append(open,label,data,remove);
-  return {card,open,image,label,data,remove};
+  const label=document.createElement('small'),data=document.createElement('div'),remove=document.createElement('button'),toggle=document.createElement('button');remove.type='button';toggle.type='button';toggle.hidden=true;
+  card.append(open,label,data,toggle,remove);
+  return {card,open,image,label,data,remove,toggle};
 }
 async function refreshReferences(){
   const request=++referenceLibraryRequest,stream=currentActiveURL;
@@ -54,12 +55,13 @@ async function refreshReferences(){
     for(const ref of refs){
       let elements=referenceCards.get(ref.id);
       if(!elements){elements=createReferenceCard();referenceCards.set(ref.id,elements);box.append(elements.card)}
-      const {card,open,image,label,data,remove}=elements;
+      const {card,open,image,label,data,remove,toggle}=elements;
       card.dataset.referenceId=ref.id;open.onclick=()=>selectReference(ref);open.setAttribute('aria-label',t('logos.showPosition'));
       const source='/api/references/'+encodeURIComponent(ref.id)+'.bmp';
       if(image.getAttribute('src')!==source)image.src=source;
       image.alt=t('logos.referenceAlt');label.textContent=ref.created_at;label.title=ref.stream_name||ref.stream_url;
       renderReferenceData(data,ref);
+      toggle.hidden=!ref.automatic;toggle.textContent=t(ref.disabled?'detection.enableReference':'detection.disableReference');toggle.onclick=async()=>{try{await api('/api/references/'+encodeURIComponent(ref.id),{method:'PATCH',body:JSON.stringify({disabled:!ref.disabled})});await refreshReferences()}catch(e){alert(e.message)}};
       remove.textContent=t('actions.delete');
       remove.onclick=async()=>{
         if(!confirm(t('alerts.deleteReference')))return;

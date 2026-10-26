@@ -1,91 +1,47 @@
 # TV Logo Monitor
 
-A local Go service that watches an HLS/M3U stream with `ffmpeg` and switches Kodi between a channel and a placeholder when a channel logo disappears or reappears. Logos can move within their saved corner as the broadcast format changes.
+A local Go service that watches TV streams from an M3U/M3U8 playlist with `ffmpeg` and switches Kodi between a channel and a filler when a channel logo disappears or reappears. Logos can move within their saved corner as the broadcast format changes.
 
-## Requirements and startup
+The browser interface manages logo references, seasonal fillers, detection settings, and diagnostics. Classic logo detection, multi-signal comparison, automatic reference discovery, and offline replay are available.
 
-Building from source requires Go 1.24 or newer. `ffmpeg` must be available in `PATH`. Kodi needs an accessible JSON-RPC web server (typically `http://kodi-host:8080/jsonrpc`). For Windows, follow the [installation instructions below](#windows-installation-powershell).
+## Contents
 
-```sh
-go build -o tv-logo-monitor .
-./tv-logo-monitor -config config.json -data-dir data
-```
+- [Installation](#installation)
+- [First configuration](#first-configuration)
+- [Operation and stream limit](#operation-and-stream-limit)
+- [Fillers and seasonal images](#fillers-and-seasonal-images)
+- [Reference images](#reference-images)
+- [Multi-signal detection and automatic references](#multi-signal-detection-and-automatic-references)
+- [Recording, labels, and offline comparison](#recording-labels-and-offline-comparison)
+- [Development and checks](#development-and-checks)
 
-Run `go test ./...` for the automated checks. The optional browser interaction test uses headless Chrome: `go test ./... -args -filler-browser`. It uses fixture data and does not contact Kodi.
+## Installation
 
-Then open the local UI at `http://127.0.0.1:8099` and configure the M3U8 and Kodi JSON-RPC URLs once. The service loads the M3U8 automatically at startup, reads Kodi's active playback, and monitors the corresponding channel without manual selection. To create the first reference, switch Kodi to the desired channel and select “Load current image”.
+Choose the guide for your operating system:
+
+- [Linux installation](README-linux.md): prerequisites, build, startup, LAN access, and an optional systemd service.
+- [Windows installation (PowerShell)](README-windows.md): prerequisites, build, startup, LAN access, and troubleshooting.
+
+Both guides build from source and require Go 1.24 or newer, `ffmpeg` in `PATH`, a reachable M3U/M3U8 channel list, and Kodi with HTTP/JSON-RPC control enabled. Git is optional when downloading the repository as a ZIP.
+
+On the first start, the service creates `config.json` and `data` automatically. Preserve both when updating: they contain settings, logo references, uploaded images, sender profiles, and recordings. Custom locations can be set with `-config` and `-data-dir`.
+
+The service has no authentication for its UI. The default address is `127.0.0.1:8099`; when enabling LAN access, restrict it with a firewall or reverse proxy as described in the installation guides.
+
+## First configuration
+
+After starting the monitor, open <http://127.0.0.1:8099> on the same computer.
+
+1. In Kodi, open **Settings → Services → Control**, enable **Allow remote control via HTTP**, and note the port, username, and password. See [Kodi's web server settings](https://kodi.wiki/view/Settings/Services/Control).
+2. In the monitor's **Kodi & Automation** tab, enter the M3U/M3U8 channel list URL and Kodi's JSON-RPC address, for example `http://127.0.0.1:8080/jsonrpc` when Kodi runs on the same computer, or `http://192.168.1.50:8080/jsonrpc` for another device. Enter the Kodi credentials and save the settings. Use the port configured in Kodi.
+3. In **Fillers**, upload an image or add a file/URL accessible to Kodi, enable it, and select a standard filler as fallback. Save the selection. Local file paths refer to the device running Kodi. For uploaded images on another Kodi device, configure LAN access using the [Linux](README-linux.md#4-allow-access-from-another-device-if-needed) or [Windows](README-windows.md#4-allow-access-from-another-device-if-needed) guide.
+4. Start a TV channel in Kodi. In **Logo references**, select **Load current image**, mark the channel logo, and select **Save logo**. Repeat for each channel you want to monitor. Saving the first reference starts detection for that channel. Compare and Hybrid modes can also [discover references automatically](#multi-signal-detection-and-automatic-references).
+
+The service loads the playlist automatically at startup, reads Kodi's active playback, and monitors the corresponding channel without manual selection. Kodi and playlist channel names must match as described under [Operation and stream limit](#operation-and-stream-limit).
 
 The interface follows the browser language by default (German or English). Users can choose either language from the selector in the top-right corner; that choice is retained in the browser.
 
-The status page shows the current programme title below the channel name when Kodi supplies EPG data. It refreshes with playback polling and continues to show the monitored sender's programme while a placeholder is playing. If programme information is unavailable, the line is hidden.
-
-## Windows installation (PowerShell)
-
-### 1. Install the prerequisites
-
-- Install a current stable [Go release for Windows](https://go.dev/doc/install) using the MSI installer (at least Go 1.24). Choose the download for your processor architecture.
-- Download a Windows build through the **Windows EXE Files** links on the [FFmpeg download page](https://ffmpeg.org/download.html). Extract it so that `ffmpeg.exe` is located at, for example, `C:\Tools\ffmpeg\bin\ffmpeg.exe`.
-- Add `C:\Tools\ffmpeg\bin` to your user's `Path`: search the Windows Start menu for **Edit environment variables for your account**, select **Path**, then **Edit → New** and enter the directory containing `ffmpeg.exe`.
-- Install [Git for Windows](https://git-scm.com/install/windows) if you want to clone the repository. Alternatively, download and extract the repository ZIP in the next step.
-
-Close and reopen PowerShell after installation and changes to `Path`, then check:
-
-```powershell
-go version
-ffmpeg -version
-```
-
-Both commands should display their installed version. The monitor starts FFmpeg by name, so its directory must remain in `Path` when running the application.
-
-### 2. Download and build the monitor
-
-Choose a writable directory, for example your user profile, and run:
-
-```powershell
-Set-Location $env:USERPROFILE
-git clone https://github.com/tas2580/tvadblock.git
-Set-Location .\tvadblock
-go build -o tv-logo-monitor.exe .
-```
-
-Without Git, open the repository on GitHub, select **Code → Download ZIP**, extract the archive, and open PowerShell in the extracted directory containing `go.mod`. Then run the same `go build` command. Build the complete package with the final `.`; `go build main.go` omits required source files.
-
-### 3. Start and configure
-
-From the project directory, start the application:
-
-```powershell
-.\tv-logo-monitor.exe -config .\config.json -data-dir .\data
-```
-
-On a fresh installation, the application creates `config.json` and the `data` directory automatically. Existing settings and data are reused. Keep the PowerShell window open while the monitor runs; press **Ctrl+C** to stop it. Preserve `config.json` and `data` when updating the executable.
-
-Open <http://127.0.0.1:8099> in your browser. The interface follows your browser language and also offers a language selector.
-
-1. In Kodi, open **Settings → Services → Control**, enable **Allow remote control via HTTP**, and note the port, username, and password. See [Kodi's web server settings](https://kodi.wiki/view/Settings/Services/Control).
-2. In the monitor's **Kodi & Automation** tab, enter the M3U/M3U8 channel list URL and Kodi's JSON-RPC address, for example `http://127.0.0.1:8080/jsonrpc` when Kodi runs on this PC, or `http://192.168.1.50:8080/jsonrpc` for another device. Enter the Kodi credentials and save the settings. Use the port configured in Kodi.
-3. In **Fillers**, upload an image or add a file/URL accessible to Kodi, enable it, and select a standard filler as fallback. Save the selection. Local file paths refer to the device running Kodi.
-4. Start a TV channel in Kodi. In **Logo references**, select **Load current image**, mark the channel logo, and select **Save logo**. Repeat for each channel you want to monitor. Saving the first reference starts detection for that channel.
-
-### 4. Allow access from another device, if needed
-
-If Kodi runs on another device and should display uploaded images, it must be able to reach the monitor. Stop the monitor and restart it with:
-
-```powershell
-.\tv-logo-monitor.exe -config .\config.json -data-dir .\data -http-addr 0.0.0.0:8099
-```
-
-Use `ipconfig` to find the Windows PC's LAN IPv4 address. Under **Kodi & Automation**, set **Public base URL of this service** to that address, for example `http://192.168.1.20:8099`, and save. Use the Windows PC's address here; the Kodi JSON-RPC address still points to the device running Kodi.
-
-Allow inbound TCP port `8099` for the monitor on your private network in Windows Defender Firewall. Kodi's HTTP port, commonly `8080`, must also be reachable from the monitor. The monitor UI has no authentication; limit access to your trusted LAN. When everything runs on the same PC, the default `127.0.0.1:8099` binding is sufficient.
-
-### Troubleshooting
-
-- **`go` or `ffmpeg` is not recognized:** check the installation and `Path`, then reopen PowerShell. For FFmpeg, add the directory containing `ffmpeg.exe`, not the executable itself or the archive's top-level directory.
-- **The executable is not found:** run it from the build directory using the PowerShell prefix `.\`, as shown above.
-- **Port `8099` is already in use:** stop the other monitor instance or choose another port with `-http-addr 127.0.0.1:8100`, then open `http://127.0.0.1:8100`. For LAN use, bind to `0.0.0.0:8100` and update the public base URL and firewall rule accordingly.
-- **Kodi cannot be reached:** verify that Kodi is running, HTTP control is enabled, and its IP, port, credentials, and firewall settings match the monitor configuration.
-- **Uploaded fillers do not appear on a separate Kodi device:** check the public base URL and firewall. `localhost` and `127.0.0.1` on that device refer to Kodi itself.
+The status page shows the current programme title below the channel name when Kodi supplies EPG data. It refreshes with playback polling and continues to show the monitored sender's programme while a filler is playing. If programme information is unavailable, the line is hidden.
 
 ## Operation and stream limit
 
@@ -93,7 +49,7 @@ The service also loads Kodi's TV channel list at startup and every five minutes.
 
 If no unique Kodi channel can be resolved, or Kodi explicitly rejects the channel ID, the service falls back to opening the M3U stream URL and logs the reason. In that case Kodi may display a stream instead of a TV channel. Network failures do not trigger a second open request because Kodi may already have switched. Changing the Kodi connection clears cached channel IDs and reloads the channel list.
 
-While the channel is playing, Kodi keeps one connection to the TV server and the monitor keeps another when logo references are available. Without references for the active channel, detection stays in setup mode. Opening the visible “Logo references” tab starts a preview decoder so “Load current image” can use an already decoded frame. Leaving or hiding the tab releases this decoder when no other browser is using the logo editor. Preview sessions expire within 20 seconds if a browser disconnects without notifying the service. Saving the first reference starts detection; deleting the last reference keeps decoding only while a logo editor is open. Normal detection continues independently of browser tabs. While the placeholder is playing, only the monitor remains connected to the TV server. Do not start additional Kodi clients for the same channel if the limit of two fetches must be maintained.
+While the channel is playing, Kodi keeps one connection to the TV server and the monitor keeps another when logo references are available. In Classic mode, or with automatic reference discovery disabled, a channel without references stays in setup mode. Compare and Hybrid can instead keep the decoder running to discover and validate references automatically. Opening the visible “Logo references” tab starts a preview decoder so “Load current image” can use an already decoded frame. Leaving or hiding the tab releases this decoder when no other browser is using the logo editor. Preview sessions expire within 20 seconds if a browser disconnects without notifying the service. Saving the first reference starts detection; deleting the last reference keeps decoding only while a logo editor is open. Normal detection continues independently of browser tabs. While the placeholder is playing, only the monitor remains connected to the TV server. Do not start additional Kodi clients for the same channel if the limit of two fetches must be maintained.
 
 The defaults check every two seconds and require three consecutive frames before each switch. Only after an automatically detected advertising break does a ten-minute program lock prevent another switch; it does not apply at service startup, when Kodi changes channel, or when the channel is changed manually. By default, the detector is stopped for this lock period to release its stream connection and save resources; it starts automatically when the lock ends. This can be disabled in “Detection & timing”. The placeholder remains visible for at least 30 seconds after switching. Both timings and the detection thresholds can be changed in the “Detection & timing” tab; `0` disables the respective lock. The status also shows the program or advertising duration since its respective detection.
 
@@ -135,33 +91,189 @@ Under **Detection & timing**, the channel list lets you set an optional similari
 
 The selected channel threshold, or the global default, has an uncertainty band of ±0.03. Scores at least 0.03 above the threshold confirm presence; scores below its lower edge indicate absence. Shifted or resized matches use at least 0.85 as their base threshold. Uncertain frames reset both confirmation counters and do not switch Kodi. Existing protection periods and consecutive-frame requirements still apply. Debug recordings store the selected channel threshold and each frame's effective threshold.
 
-The detector also learns the foreground logo colour automatically from at least six confirmed matches with changing backgrounds, keeping up to eight distinct crops per reference in memory. It fits the colour mixture across logo edges to account for transparency; simply averaging reference pixels would retain the programme background. Once enough edge areas agree, an otherwise missing logo is treated as uncertain if at least 95% of its last confirmed or original area is close to that colour and the area has very little colour variation. This prevents a white logo against a white sky from triggering a switch. Colour alone never confirms presence or returns from a filler. The protection lasts while the area remains ambiguous, so advertising with a matching flat background may be detected later. Until calibration succeeds, the existing shape detection applies. Calibration restarts when the decoder restarts, the channel changes, or references are reloaded; existing references and configuration need no changes.
+The detector also learns the foreground logo colour automatically from at least six confirmed matches with changing backgrounds, keeping up to eight distinct crops per reference in memory. It fits the colour mixture across logo edges to account for transparency; simply averaging reference pixels would retain the programme background. Once calibrated, an otherwise missing logo is checked at its last confirmed and original positions in small neighbourhoods along the masked contours. Local colour medians, median absolute deviations and central colour ranges tolerate isolated background edges and sky gradients while rejecting texture. Protection requires at least 50% of the weighted contour to be low-contrast across at least three spatial cells, with low-contrast and remaining matching contours together covering at least 85%. This also protects a logo that is only partly hidden against a white sky; missing contours in clearly observable areas still count against protection. Colour alone never confirms presence, moves the tracked position, trains the colour model or returns from a filler. The protection lasts while the area remains ambiguous, so advertising with a matching background may be detected later. Until calibration succeeds, the existing shape detection applies. Calibration restarts when the decoder restarts, the channel changes, or references are reloaded; existing references and configuration need no changes.
 
 Under **Inspect logo detection** on the status page, load a snapshot with its crop, mask, location, scale, edge score, normalized structure score, and contour coverage. Export a ZIP labeled “logo present” or “logo missing” to collect real examples for calibration. Snapshot images and labels refer to the same frame; the last 32 snapshots are retained in memory. Improvements on real broadcasts still need verification against labeled programme and advertisement sequences.
 
-Enable **Debug mode for automatic switches** under “Detection & timing” to save the last ten evaluated full frames before each successful automatic switch to the placeholder. Open **Inspect saved switches** on the status page to step through each frame with its logo scores, effective threshold, reference, and consecutive-frame counts, or download the whole case as a ZIP. Up to ten cases are retained in `data/debug/` (or the configured `-data-dir`); older cases are removed automatically. Manual switches do not create cases. Disabling debug mode stops new recordings and leaves saved cases available. The JSON metadata contains the channel name but no stream URL or Kodi credentials.
+Enable **Debug mode for automatic switches** under “Detection & timing” to save the last ten evaluated full frames before each successful automatic switch to the placeholder or back to the channel. Open **Inspect saved switches** on the status page and select **Channel → Advertisement** or **Advertisement → Channel** to inspect the cases for that direction. Step through each frame with its logo scores, effective threshold, reference, and consecutive-frame counts, or download the whole case as a ZIP. Up to ten cases across both directions are retained in `data/debug/` (or the configured `-data-dir`); older cases are removed automatically. Manual switches do not create cases. Disabling debug mode stops new recordings and leaves saved cases available. The JSON metadata contains the channel name and `direction` (`to-placeholder` or `to-sender`), but no stream URL or Kodi credentials. Existing cases without a direction are treated as switches to the placeholder.
 
 The additive API endpoints are `/api/logo-capture` (POST a rectangle to start; GET/DELETE with `?id=...`; POST with `?id=...` to save), `/api/logo-mask` (GET/PUT with `?id=...` or `?capture=...`; mask bytes are base64 JSON; `view=frame` or `view=transparent` returns an image), and `/api/logo-diagnostic` (GET a snapshot or image; POST `{ "present": true/false }` to export a labeled ZIP). Capture requires an active editor preview lease. `/api/status` adds `status.logo_detection`; uncertain observations omit `logo_present`.
 
 Logo results optionally include `logo_color` with `rgb` (three numbers from 0 to 255), `confidence` (agreement of the colour estimates from 0 to 1), and `samples` (calibration frame count). `uncertainty_reason: "logo_color_low_contrast"` identifies colour-based protection. These values appear in the diagnostic and saved-switch views and their JSON/ZIP exports; older recordings remain readable.
 
+Logo results also include optional `rejection_reason` and `position_checks` diagnostics. Each position check preserves a direct shape `result` at the last tracked or original position, even when a failed search selects a stronger background candidate elsewhere. Its optional `contrast` object reports `hidden_coverage`, `visible_coverage`, `supported_coverage` (weighted fractions from 0 to 1), `hidden_cells`, `total_cells`, and `protected`. Contrast checks require colour calibration and are omitted for confirmed shape matches. Rejection reasons distinguish invalid regions or references, insufficient edge energy, insufficient spatial support or contour coverage, and similarity below or within the threshold's uncertainty band. The same evidence is displayed in live diagnostics and saved switches and retained in JSON/ZIP exports. Existing fields keep their meanings; old recordings need no migration.
+
 Debug recordings are available through GET `/api/debug-captures`, `/api/debug-captures/{id}`, `/api/debug-captures/{id}/frames/{index}`, and `/api/debug-captures/{id}/download`. The setting is `debug_enabled` in `config.json` and defaults to `false`.
 
-## systemd
+## Multi-signal detection and automatic references
 
-```ini
-[Unit]
-Description=TV Logo Monitor
-After=network-online.target
+Under **Detection & timing**, select one of three modes:
 
-[Service]
-WorkingDirectory=/opt/tv-logo-monitor
-ExecStart=/opt/tv-logo-monitor/tv-logo-monitor -config /etc/tv-logo-monitor/config.json -data-dir /var/lib/tv-logo-monitor
-Restart=always
-User=tvmonitor
+- **Classic** keeps the existing consecutive-logo decisions.
+- **Compare** runs both decision engines and lets only Classic control Kodi.
+- **Multiple signals** (`hybrid`) uses the new engine to control Kodi.
 
-[Install]
-WantedBy=multi-user.target
+Existing configurations stay in Classic. A new installation starts in Compare;
+changing mode requires saving the settings. In Compare and Hybrid, automatic
+reference discovery and sender learning default to enabled. Both have global
+switches and optional overrides for the current sender.
+
+The new engine retains the configured logo confirmation counts and playback
+locks. An unequivocal logo absence can switch at the usual confirmation time.
+Recent uncertainty starts an additional decision window of at most ten seconds
+from the usual switch point. Fresh strong absence evidence or corroborating
+transition signals can resolve it sooner. Unresolved cases keep the channel
+playing; another attempt requires fresh confirming evidence. Black pictures,
+silence, rapid cuts, format changes, and learned durations never switch playback
+on their own. Return still requires confirmed logo presence and the configured
+minimum placeholder duration.
+
+The same FFmpeg input supplies RGB images and native-rate measurements of black
+pictures, silence, scene changes, and visible-format changes where the installed
+filters support them. This opens no additional stream connection. Signal
+availability appears under **Signals, comparison and recordings**; streams without
+audio continue with video signals. Restarted or discontinuous decoder timelines
+discard old evidence. Paused detection does not collect observations or learn.
+
+Automatic reference discovery examines compact, recurring contours in the four
+outer image quarters. It requires at least 30 seconds, eight samples, and three
+backgrounds to create a candidate. The actual mask must span at least 20 by 20
+pixels in the 1280-by-720 decoder image and contain at least 200 pixels with mask
+weight above 100. Padding does not count. A covariance eigenvalue ratio of at
+least 0.05 rejects nearly straight contours, including diagonal lines.
+A separate five-minute validation window follows immediately, with at least
+30 checks and at least 90% confirmed matches. More than ten seconds without
+confirmation rejects a candidate; the final check must also confirm it.
+Decoder changes, backwards timestamps, and gaps longer than the greater of ten
+seconds or three configured check intervals restart discovery. There is no
+unchecked waiting period; the earliest activation is after about 5.5 minutes.
+Only then is the reference saved and used. There are at most four automatic
+references per sender. Reference cards show origin and validation and allow
+disabling, editing, or deleting a reference.
+Deleting an automatic reference suppresses rediscovery in that region until the
+sender profile is reset.
+
+On service startup, active automatic references that fail the shape requirements
+are removed from the index together with their images and masks, freeing learning
+slots without suppressing those regions. Manual and disabled references remain
+untouched. Unreadable images or masks are retained and reported as errors.
+Suitable existing automatic references do not need to repeat the longer validation.
+
+Automatic references are cleaned up when they stop appearing. A changed Kodi
+programme title must appear in two consecutive successful EPG polls. Existing
+active automatic references that do not match during five minutes of observed
+programme time after that change are removed. A match during this review keeps
+the reference. The first known title and missing EPG data do not start a review.
+Independently of EPG, an active automatic reference expires after 30 minutes of
+observed programme time without a match; each match resets that timer. Manual
+and disabled references are retained. Time counts only while the sender is
+playing, detection is running, and another logo confirms programme content.
+Advertisements, protection periods, independent validation recordings, decoder
+interruptions, and uncertain observations do not age references. An uncertain
+result pauses that reference's timer even when another logo is visible.
+Cleanup removes the saved images and masks and frees discovery slots without
+restarting the decoder or suppressing the region, so recurring designs can be
+learned again. Timers are kept in memory and reset on service restart, channel
+change, or a change to the Kodi connection.
+
+Sender profiles activate after five complete, unambiguous logo-presence/absence/
+presence cycles. They retain typical break durations and observed transition
+frequency. Only corroborating signals within the additional decision window are
+affected; similarity thresholds, confirmation counts, and lock durations are not
+changed automatically. Profiles and suppressed regions are stored atomically in
+`data/sender-profiles.json`, keyed by stream URL like references. Resetting a
+sender profile clears both its learned values and suppressed regions.
+
+Configuration adds `detection_mode` (`classic`, `compare`, `hybrid`), optional
+`automatic_references` and `sender_learning` booleans, and optional
+`channel_detection` overrides keyed by stream URL, for example:
+
+```json
+{
+  "detection_mode": "compare",
+  "automatic_references": true,
+  "sender_learning": true,
+  "channel_detection": {
+    "http://tv.test/channel": {"automatic_references": false}
+  }
+}
 ```
 
-The service intentionally has no authentication for its UI. Keep it on `127.0.0.1` or protect it on the LAN with a firewall or reverse proxy.
+`GET /api/status` adds `status.detection` containing both decisions, their reasons
+and confirmation counts, remaining decision time, current signals, and learning
+state. Existing status fields retain their meanings.
+The top-level `recording` field reports the current recording's ID, state, and
+purpose, or `null` before the first recording. This keeps recording controls in
+sync after reloads and automatic stops without transferring stored observations.
+Saved-switch JSON/ZIP files include the same evidence when available. Reference metadata adds `automatic`,
+`validated_at`, `validation_rate`, and `disabled`; older references remain usable.
+`GET /api/detection/profile` reads the active sender's profile; `DELETE` resets it.
+`PATCH /api/references/{id}` with `{"disabled":true}` disables an automatic reference.
+
+## Recording, labels, and offline comparison
+
+Under **Signals, comparison and recordings**, explicitly start a recording in
+Compare or Hybrid mode, then stop and save it. Recordings contain observations
+and JPEG preview images, up to ten minutes or 600 observations and at most 32 MB
+of images. They are saved under `data/observations/`. Normal monitoring does not
+record video or audio.
+
+Choose **Independent validation** for held-out material: sender learning and
+automatic reference discovery pause during that recording. **Training recording**
+allows those adaptations to continue. The recording stores the initial sender
+profile; replays keep it fixed and do not learn from evaluation labels. Keep
+training and validation recordings separate.
+
+Load a saved recording, inspect its images using the sample slider, and label
+non-overlapping intervals as Program or Commercial. Times are seconds from the
+first observation; unlabeled intervals are excluded from quality measurements.
+Save labels and evaluate both engines. Reports include false switches per observed
+program hour, missed breaks, detection and return delays, and breaks without an
+observed return. Download a ZIP including images or a standalone observations JSON.
+Configuration changes, stopping detection, and channel changes finish a recording.
+
+The standalone replay never starts Kodi automation or contacts a TV stream:
+
+```sh
+./tv-logo-monitor -replay observations.json
+./tv-logo-monitor -replay detection-recording.zip
+./tv-logo-monitor -replay recording.mkv -replay-reference REFERENCE_ID -replay-labels labels.json -data-dir data
+```
+
+For a local video file, use an existing reference's ID and the matching channel
+geometry. Video replay uses the saved channel threshold and current timing
+configuration; JSON/ZIP replay uses its recorded timings. Optional labels use
+`[{"start":0,"end":60,"kind":"program"},{"start":60,"end":180,"kind":"ad"}]`.
+The report is written as JSON to stdout. Local-video replay allows only local
+file/pipe protocols and performs no profile or reference writes.
+
+Recording API: `POST /api/detection/recording` with
+`{"action":"start","purpose":"validation"}` or `{"action":"stop"}`;
+`GET /api/detection/recordings` lists saved recordings;
+`GET /api/detection/recording?id=ID` reads one (add `download=1` for its ZIP);
+`PUT` at that URL saves `{"labels":[...]}`.
+`POST /api/detection/replay` accepts a recording and returns the comparison report.
+
+The known DMAX, ProSieben, and SAT.1 fixtures cover logo regressions, not real ad
+recall. Empirical acceptance remains pending until separate, labeled real
+transitions demonstrate no additional false switches or missed breaks compared
+with Classic. The report explicitly retains that limitation. Synthetic and local
+video integration tests do not establish improved real-world detection.
+
+## Development and checks
+
+Build the complete package from the directory containing `go.mod`, as described in the [Linux](README-linux.md) and [Windows](README-windows.md) installation guides. Building only `main.go` omits required source files.
+
+Run the automated checks with:
+
+```sh
+go test ./...
+```
+
+With Chrome installed, run the optional browser interaction checks for fillers and detection controls:
+
+```sh
+go test ./... -args -filler-browser -detection-browser
+```
+
+These browser checks use fixture data and do not contact Kodi.

@@ -95,17 +95,19 @@ func channelForKodiItem(channels []Channel, kodiChannels []KodiChannel, item Kod
 // Programme information belongs to the monitored sender, including while
 // Kodi is showing our placeholder. Missing EPG data is not a playback error.
 func (a *App) syncKodiProgramme(cfg KodiConfig) {
-	a.mu.RLock()
+	a.mu.Lock()
+	if a.cfg.Kodi != cfg {
+		a.mu.Unlock()
+		return
+	}
 	channel := a.active
 	id := channel.KodiChannelID
 	if id == nil {
 		id = uniqueKodiChannelID(a.kodiChannels, channel.Name)
 	}
-	connectionChanged := a.cfg.Kodi != cfg
-	a.mu.RUnlock()
-	if connectionChanged {
-		return
-	}
+	a.kodiProgrammeRequest++
+	request := a.kodiProgrammeRequest
+	a.mu.Unlock()
 	title := ""
 	if channel.URL != "" && id != nil {
 		result, _, err := a.kodiCallWithConfig(cfg, "PVR.GetChannelDetails", map[string]any{
@@ -130,7 +132,8 @@ func (a *App) syncKodiProgramme(cfg KodiConfig) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.cfg.Kodi == cfg && sameActiveChannel(a.active, channel) && a.active.URL == channel.URL {
+	if a.kodiProgrammeRequest == request && a.cfg.Kodi == cfg && sameActiveChannel(a.active, channel) && a.active.URL == channel.URL {
 		a.status.KodiProgramme = title
+		a.observeReferenceProgrammeLocked(title)
 	}
 }

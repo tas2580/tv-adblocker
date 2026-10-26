@@ -18,7 +18,7 @@ const logoEditorHTML = `
 </style>`
 
 const logoDiagnosticHTML = `
-<details class="status-details logo-diagnostic" id="logo-diagnostic" ontoggle="if(this.open)refreshLogoDiagnostic()"><summary data-i18n="diagnostic.heading"></summary>
+<details class="settings-advanced status-details logo-diagnostic" id="logo-diagnostic" ontoggle="if(this.open)refreshLogoDiagnostic()"><summary data-i18n="diagnostic.heading"></summary>
 <p class="field-hint" data-i18n="diagnostic.intro"></p><p id="diagnostic-message" role="status"></p>
 <div id="diagnostic-content" hidden><pre id="diagnostic-values"></pre><div class="diagnostic-images"><img id="diagnostic-frame" alt=""/><img id="diagnostic-mask" class="checkerboard" alt=""/></div>
 <div class="status-actions"><button class="secondary" type="button" onclick="refreshLogoDiagnostic()" data-i18n="diagnostic.refresh"></button><button type="button" onclick="exportLogoExample(true)" data-i18n="diagnostic.exportPresent"></button><button type="button" onclick="exportLogoExample(false)" data-i18n="diagnostic.exportMissing"></button></div></div>
@@ -96,6 +96,13 @@ function logoColorDiagnosticText(r){
   if(r.logo_color){const c=r.logo_color;text+='\n'+t('diagnostic.logoColor',{r:Math.round(c.rgb[0]),g:Math.round(c.rgb[1]),b:Math.round(c.rgb[2]),confidence:Math.round(c.confidence*100),samples:c.samples})}
   if(r.uncertainty_reason==='logo_color_low_contrast')text+='\n'+t('diagnostic.logoColorLowContrast');
   if(r.uncertainty_reason==='logo_position_pending')text+='\n'+t('diagnostic.logoPositionPending');
+  if(r.rejection_reason)text+='\n'+t('diagnostic.shapeRejection',{reason:t('diagnostic.rejection.'+r.rejection_reason)});
+  for(const check of r.position_checks||[]){
+    const p=check.result,c=check.contrast;
+    text+='\n\n'+t('diagnostic.knownPosition',{decision:t('decision.'+p.decision),x:p.rect.x,y:p.rect.y,w:p.rect.w,h:p.rect.h,scale:Math.round(p.scale*100),score:p.score.toFixed(3),threshold:p.threshold.toFixed(3),edge:p.edge_score.toFixed(3),structure:p.structure_score.toFixed(3),coverage:Math.round(p.coverage*100)});
+    if(p.rejection_reason)text+='\n'+t('diagnostic.shapeRejection',{reason:t('diagnostic.rejection.'+p.rejection_reason)});
+    if(c)text+='\n'+t('diagnostic.contrastCheck',{hidden:Math.round(c.hidden_coverage*100),visible:Math.round(c.visible_coverage*100),supported:Math.round(c.supported_coverage*100),cells:c.hidden_cells,total:c.total_cells,protection:t(c.protected?'diagnostic.protectionActive':'diagnostic.protectionInactive')});
+  }
   return text;
 }
 async function refreshLogoDiagnostic(){

@@ -43,31 +43,35 @@ type KodiConfig struct {
 	Password string `json:"password"`
 }
 type Config struct {
-	HTTPAddr                        string             `json:"http_addr"`
-	M3UURL                          string             `json:"m3u_url"`
-	StreamURL                       string             `json:"stream_url"`
-	StreamName                      string             `json:"stream_name"`
-	PlaceholderPath                 string             `json:"placeholder_path"`
-	PlaceholderURL                  string             `json:"placeholder_url"`
-	PlaceholderImage                string             `json:"placeholder_image"`
-	PlaceholderSource               string             `json:"placeholder_source"`
-	KodiPlaceholder                 string             `json:"kodi_placeholder"`
-	KodiPlaceholders                []string           `json:"kodi_placeholders"`
-	Fillers                         []Filler           `json:"fillers"`
-	FallbackFillerID                string             `json:"fallback_filler_id"`
-	PublicBaseURL                   string             `json:"public_base_url"`
-	LogoRect                        Rect               `json:"logo_rect"`
-	IntervalSeconds                 int                `json:"interval_seconds"`
-	MissingFrames                   int                `json:"missing_frames"`
-	PresentFrames                   int                `json:"present_frames"`
-	ProgramCooldownSeconds          int                `json:"program_cooldown_seconds"`
-	PlaceholderMinSeconds           int                `json:"placeholder_min_seconds"`
-	PauseDetectionDuringProgramLock bool               `json:"pause_detection_during_program_lock"`
-	SimilarityMinimum               float64            `json:"similarity_minimum"`
-	ChannelSimilarityMinimum        map[string]float64 `json:"channel_similarity_minimum,omitempty"`
-	ContrastStrength                float64            `json:"contrast_strength"`
-	DebugEnabled                    bool               `json:"debug_enabled"`
-	Kodi                            KodiConfig         `json:"kodi"`
+	DetectionMode                   string                            `json:"detection_mode"`
+	AutomaticReferences             *bool                             `json:"automatic_references,omitempty"`
+	SenderLearning                  *bool                             `json:"sender_learning,omitempty"`
+	ChannelDetection                map[string]ChannelDetectionConfig `json:"channel_detection,omitempty"`
+	HTTPAddr                        string                            `json:"http_addr"`
+	M3UURL                          string                            `json:"m3u_url"`
+	StreamURL                       string                            `json:"stream_url"`
+	StreamName                      string                            `json:"stream_name"`
+	PlaceholderPath                 string                            `json:"placeholder_path"`
+	PlaceholderURL                  string                            `json:"placeholder_url"`
+	PlaceholderImage                string                            `json:"placeholder_image"`
+	PlaceholderSource               string                            `json:"placeholder_source"`
+	KodiPlaceholder                 string                            `json:"kodi_placeholder"`
+	KodiPlaceholders                []string                          `json:"kodi_placeholders"`
+	Fillers                         []Filler                          `json:"fillers"`
+	FallbackFillerID                string                            `json:"fallback_filler_id"`
+	PublicBaseURL                   string                            `json:"public_base_url"`
+	LogoRect                        Rect                              `json:"logo_rect"`
+	IntervalSeconds                 int                               `json:"interval_seconds"`
+	MissingFrames                   int                               `json:"missing_frames"`
+	PresentFrames                   int                               `json:"present_frames"`
+	ProgramCooldownSeconds          int                               `json:"program_cooldown_seconds"`
+	PlaceholderMinSeconds           int                               `json:"placeholder_min_seconds"`
+	PauseDetectionDuringProgramLock bool                              `json:"pause_detection_during_program_lock"`
+	SimilarityMinimum               float64                           `json:"similarity_minimum"`
+	ChannelSimilarityMinimum        map[string]float64                `json:"channel_similarity_minimum,omitempty"`
+	ContrastStrength                float64                           `json:"contrast_strength"`
+	DebugEnabled                    bool                              `json:"debug_enabled"`
+	Kodi                            KodiConfig                        `json:"kodi"`
 }
 
 func defaultConfig() Config {
@@ -82,6 +86,9 @@ func (c Config) similarityMinimumFor(streamURL string) float64 {
 }
 
 func (c Config) validateChannelSimilarity() error {
+	if c.DetectionMode != "" && c.DetectionMode != "classic" && c.DetectionMode != "compare" && c.DetectionMode != "hybrid" {
+		return errors.New("detection_mode must be classic, compare or hybrid")
+	}
 	for streamURL, value := range c.ChannelSimilarityMinimum {
 		if strings.TrimSpace(streamURL) == "" {
 			return errors.New("channel similarity thresholds require a non-empty stream URL")
@@ -94,6 +101,9 @@ func (c Config) validateChannelSimilarity() error {
 }
 
 func (c *Config) normalize() {
+	if c.DetectionMode == "" {
+		c.DetectionMode = "classic"
+	}
 	if c.HTTPAddr == "" {
 		c.HTTPAddr = "127.0.0.1:8099"
 	}
@@ -155,40 +165,45 @@ func containsPlaceholder(values []string, target string) bool {
 }
 
 type Status struct {
-	LogoDetection            *LogoResult `json:"logo_detection,omitempty"`
-	Running                  bool        `json:"running"`
-	Mode                     string      `json:"mode"`
-	ActiveChannel            string      `json:"active_channel,omitempty"`
-	PlaylistUpdatedAt        string      `json:"playlist_updated_at,omitempty"`
-	PlaylistError            string      `json:"playlist_error,omitempty"`
-	KodiFile                 string      `json:"kodi_file,omitempty"`
-	KodiLabel                string      `json:"kodi_label,omitempty"`
-	KodiProgramme            string      `json:"kodi_programme,omitempty"`
-	KodiError                string      `json:"kodi_error,omitempty"`
-	LogoPresent              *bool       `json:"logo_present,omitempty"`
-	Similarity               float64     `json:"similarity"`
-	LastFrame                string      `json:"last_frame,omitempty"`
-	LastError                string      `json:"last_error,omitempty"`
-	DebugError               string      `json:"debug_error,omitempty"`
-	Misses                   int         `json:"misses"`
-	Matches                  int         `json:"matches"`
-	ManualPlaceholder        bool        `json:"manual_placeholder"`
-	ProgramCooldownRemaining int         `json:"program_cooldown_remaining"`
-	PlaceholderMinRemaining  int         `json:"placeholder_min_remaining"`
-	ProgramCooldownActive    bool        `json:"program_cooldown_active"`
-	DetectionPaused          bool        `json:"detection_paused"`
-	ProgramElapsedSeconds    int         `json:"program_elapsed_seconds"`
-	AdvertElapsedSeconds     int         `json:"advert_elapsed_seconds"`
-	ProgramStartedAt         string      `json:"program_started_at,omitempty"`
-	AdvertStartedAt          string      `json:"advert_started_at,omitempty"`
+	Detection                *DetectionStatus `json:"detection,omitempty"`
+	LogoDetection            *LogoResult      `json:"logo_detection,omitempty"`
+	Running                  bool             `json:"running"`
+	Mode                     string           `json:"mode"`
+	ActiveChannel            string           `json:"active_channel,omitempty"`
+	PlaylistUpdatedAt        string           `json:"playlist_updated_at,omitempty"`
+	PlaylistError            string           `json:"playlist_error,omitempty"`
+	KodiFile                 string           `json:"kodi_file,omitempty"`
+	KodiLabel                string           `json:"kodi_label,omitempty"`
+	KodiProgramme            string           `json:"kodi_programme,omitempty"`
+	KodiError                string           `json:"kodi_error,omitempty"`
+	LogoPresent              *bool            `json:"logo_present,omitempty"`
+	Similarity               float64          `json:"similarity"`
+	LastFrame                string           `json:"last_frame,omitempty"`
+	LastError                string           `json:"last_error,omitempty"`
+	DebugError               string           `json:"debug_error,omitempty"`
+	Misses                   int              `json:"misses"`
+	Matches                  int              `json:"matches"`
+	ManualPlaceholder        bool             `json:"manual_placeholder"`
+	ProgramCooldownRemaining int              `json:"program_cooldown_remaining"`
+	PlaceholderMinRemaining  int              `json:"placeholder_min_remaining"`
+	ProgramCooldownActive    bool             `json:"program_cooldown_active"`
+	DetectionPaused          bool             `json:"detection_paused"`
+	ProgramElapsedSeconds    int              `json:"program_elapsed_seconds"`
+	AdvertElapsedSeconds     int              `json:"advert_elapsed_seconds"`
+	ProgramStartedAt         string           `json:"program_started_at,omitempty"`
+	AdvertStartedAt          string           `json:"advert_started_at,omitempty"`
 }
 type ReferenceEntry struct {
-	MaskSource string `json:"mask_source,omitempty"`
-	ID         string `json:"id"`
-	StreamURL  string `json:"stream_url"`
-	StreamName string `json:"stream_name"`
-	Rect       Rect   `json:"rect"`
-	CreatedAt  string `json:"created_at"`
+	Automatic      bool    `json:"automatic,omitempty"`
+	ValidatedAt    string  `json:"validated_at,omitempty"`
+	ValidationRate float64 `json:"validation_rate,omitempty"`
+	Disabled       bool    `json:"disabled,omitempty"`
+	MaskSource     string  `json:"mask_source,omitempty"`
+	ID             string  `json:"id"`
+	StreamURL      string  `json:"stream_url"`
+	StreamName     string  `json:"stream_name"`
+	Rect           Rect    `json:"rect"`
+	CreatedAt      string  `json:"created_at"`
 }
 type referenceIndex struct {
 	References []ReferenceEntry `json:"references"`
@@ -201,10 +216,17 @@ type Frame struct {
 func (f Frame) clone() Frame { return Frame{f.W, f.H, append([]byte(nil), f.Pix...)} }
 
 type App struct {
+	detection             detectionSession
+	profiles              map[string]SenderProfile
+	profilesLoaded        bool
+	recording             *ObservationRecording
+	recordingFrames       []recordedImage
 	logoCapture           *logoCapture
 	logoDiagnostic        *logoDiagnostic
 	logoDiagnosticHistory []*logoDiagnostic
 	referenceLearning     *referenceLearningSession
+	referenceCleanup      referenceCleanup
+	kodiProgrammeRequest  uint64
 	debugFrames           []debugFrame
 	debugMu               sync.Mutex
 	mu                    sync.RWMutex
@@ -236,11 +258,21 @@ type App struct {
 }
 
 func main() {
+	replayPath := flag.String("replay", "", "evaluate a local observations JSON/ZIP or video without contacting Kodi")
+	replayLabels := flag.String("replay-labels", "", "JSON file containing program/ad label intervals")
+	replayReference := flag.String("replay-reference", "", "saved reference ID for local video replay")
 	configPath := flag.String("config", "config.json", "path to the JSON configuration")
 	dataDir := flag.String("data-dir", "data", "directory for reference data")
 	httpAddr := flag.String("http-addr", "", "override HTTP listen address (for example 0.0.0.0:8099)")
 	flag.Parse()
+	if *replayPath != "" {
+		if err := runDetectionReplay(*replayPath, *replayLabels, *replayReference, *configPath, *dataDir, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	a := &App{configPath: *configPath, dataDir: *dataDir, cfg: defaultConfig(), httpClient: &http.Client{Timeout: 12 * time.Second}}
+	a.cfg.DetectionMode = "compare"
 	if err := os.MkdirAll(a.dataDir, 0750); err != nil {
 		log.Fatal(err)
 	}
@@ -260,6 +292,9 @@ func main() {
 	if err := a.migrateLegacyReference(); err != nil {
 		log.Printf("migrate legacy reference: %v", err)
 	}
+	if err := a.pruneInvalidAutomaticReferences(); err != nil {
+		a.setError(fmt.Errorf("automatic reference cleanup: %w", err))
+	}
 	if err := a.saveConfig(); err != nil {
 		log.Fatal(err)
 	}
@@ -274,6 +309,8 @@ func (a *App) loadConfig() error {
 	if e != nil {
 		return e
 	}
+	// Files predating hybrid detection retain their previous behaviour.
+	a.cfg.DetectionMode = "classic"
 	return json.Unmarshal(b, &a.cfg)
 }
 func (a *App) saveConfig() error {
@@ -286,6 +323,10 @@ func (a *App) saveConfig() error {
 	return os.WriteFile(a.configPath, append(b, '\n'), 0600)
 }
 func (a *App) routes(m *http.ServeMux) {
+	m.HandleFunc("/api/detection/profile", a.handleDetectionProfile)
+	m.HandleFunc("/api/detection/recording", a.handleObservationRecording)
+	m.HandleFunc("/api/detection/recordings", a.handleObservationRecordings)
+	m.HandleFunc("/api/detection/replay", a.handleDetectionReplay)
 	m.HandleFunc("/", a.handleIndex)
 	m.HandleFunc("/i18n/", a.handleLocale)
 	m.HandleFunc("/api/status", a.handleStatus)
@@ -360,6 +401,7 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	placeholderMinUntil := a.placeholderMinUntil
 	programStartedAt := a.programStartedAt
 	advertStartedAt := a.advertStartedAt
+	recording := a.recordingStatusLocked()
 	a.mu.RUnlock()
 	now := time.Now()
 	s.ProgramCooldownRemaining = cooldownRemaining(programCooldownUntil, now)
@@ -375,7 +417,7 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	c.Kodi.Password = ""
 	refs, _ := a.referencesFor(active.URL)
-	writeJSON(w, map[string]any{"status": s, "config": c, "active_channel": active, "has_reference": len(refs) > 0, "reference_count": len(refs), "filler_timezone": time.Local.String() + ", " + now.Format("MST (UTC-07:00)")})
+	writeJSON(w, map[string]any{"status": s, "config": c, "recording": recording, "active_channel": active, "has_reference": len(refs) > 0, "reference_count": len(refs), "filler_timezone": time.Local.String() + ", " + now.Format("MST (UTC-07:00)")})
 }
 
 func cooldownRemaining(until, now time.Time) int {
@@ -418,6 +460,8 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 		a.kodiChannels = nil
 		a.active.KodiChannelID = nil
 		a.status.KodiProgramme = ""
+		a.referenceCleanup = referenceCleanup{}
+		a.kodiProgrammeRequest++
 	}
 	if a.cancel != nil {
 		a.cancel()
@@ -426,6 +470,11 @@ func (a *App) handleConfig(w http.ResponseWriter, r *http.Request) {
 	a.cancelScheduledResumeLocked()
 	a.status.Running = false
 	a.status.DetectionPaused = false
+	if a.recording != nil && a.recording.State == "recording" {
+		if err := a.saveRecordingLocked(); err != nil {
+			a.recording.Error = err.Error()
+		}
+	}
 	a.cfg = n
 	if !n.DebugEnabled {
 		a.debugFrames = nil
@@ -798,14 +847,22 @@ func (a *App) setActiveChannel(channel Channel) {
 	a.mu.Lock()
 	a.cancelScheduledResumeLocked()
 	a.active = channel
+	if a.recording != nil && a.recording.State == "recording" {
+		if err := a.saveRecordingLocked(); err != nil {
+			a.recording.Error = err.Error()
+		}
+	}
 	a.status.ActiveChannel = channel.Name
 	a.status.KodiProgramme = ""
+	a.referenceCleanup = referenceCleanup{}
+	a.kodiProgrammeRequest++
 	a.status.Matches, a.status.Misses = 0, 0
 	a.status.LogoPresent = nil
 	a.status.LogoDetection = nil
 	a.logoDiagnostic = nil
 	a.logoDiagnosticHistory = nil
 	a.debugFrames = nil
+	a.resetDetectionLocked()
 	if c := a.logoCapture; c != nil {
 		c.State, c.Error, c.frames = "error", "capture.channelChanged", nil
 	}
@@ -1006,11 +1063,7 @@ func (a *App) loadReferenceIndex() (referenceIndex, error) {
 	return index, nil
 }
 func (a *App) saveReferenceIndex(index referenceIndex) error {
-	b, err := json.MarshalIndent(index, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(a.referencesPath(), append(b, '\n'), 0600)
+	return atomicJSON(a.referencesPath(), index)
 }
 func (a *App) migrateLegacyReference() error {
 	legacy := filepath.Join(a.dataDir, "logo-reference.rgb")
@@ -1115,16 +1168,7 @@ func (a *App) removeReference(id, streamURL string) error {
 	if err := a.saveReferenceIndex(index); err != nil {
 		return err
 	}
-	if err := os.Remove(a.referenceFile(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.Remove(a.maskFile(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.Remove(a.automaticMaskFile(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	return a.removeReferenceFiles(id)
 }
 func (a *App) handleReferences(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -1153,6 +1197,10 @@ func (a *App) handleReferences(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, details)
 }
 func (a *App) handleReferenceItem(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPatch {
+		a.handleAutomaticReferenceSetting(w, r)
+		return
+	}
 	part := strings.TrimPrefix(r.URL.Path, "/api/references/")
 	if strings.HasSuffix(part, ".bmp") && r.Method == http.MethodGet {
 		id := strings.TrimSuffix(part, ".bmp")
@@ -1174,11 +1222,23 @@ func (a *App) handleReferenceItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "DELETE required", http.StatusMethodNotAllowed)
 		return
 	}
-	a.mu.RLock()
+	a.mu.Lock()
 	streamURL := a.active.URL
 	running := a.status.Running || a.status.DetectionPaused
-	a.mu.RUnlock()
+	entry, entryErr := a.referenceByID(part)
+	if entryErr == nil && entry.StreamURL == streamURL && entry.Automatic {
+		a.loadProfilesLocked()
+		profile := a.profiles[streamURL]
+		profile.Blocked = append(profile.Blocked, entry.Rect)
+		a.profiles[streamURL] = profile
+		if err := a.saveProfilesLocked(); err != nil {
+			a.mu.Unlock()
+			http.Error(w, err.Error(), 500)
+			return
+		}
+	}
 	if err := a.removeReference(part, streamURL); err != nil {
+		a.mu.Unlock()
 		if errors.Is(err, os.ErrNotExist) {
 			http.NotFound(w, r)
 			return
@@ -1186,6 +1246,7 @@ func (a *App) handleReferenceItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	a.mu.Unlock()
 	if running {
 		a.restartMonitor()
 	}
@@ -1230,6 +1291,12 @@ func (a *App) handleStop(w http.ResponseWriter, r *http.Request) {
 		a.cancel = nil
 	}
 	a.cancelScheduledResumeLocked()
+	if a.recording != nil && a.recording.State == "recording" {
+		if err := a.saveRecordingLocked(); err != nil {
+			a.recording.Error = err.Error()
+		}
+	}
+	a.resetDetectionLocked()
 	a.status.Running = false
 	a.status.DetectionPaused = false
 	if a.status.Mode == "setup" {
@@ -1252,6 +1319,7 @@ func (a *App) handleCancelProgramCooldown(w http.ResponseWriter, r *http.Request
 		a.cancelScheduledResumeLocked()
 		a.status.DetectionPaused = false
 		a.status.Matches, a.status.Misses = 0, 0
+		a.resetDetectionLocked()
 		if resume {
 			a.status.Mode = "idle"
 			err = a.startMonitorLocked()
@@ -1305,6 +1373,7 @@ func (a *App) handleResumeAutomatic(w http.ResponseWriter, r *http.Request) {
 	} else if a.status.Running {
 		a.status.Mode = "monitoring"
 	}
+	a.resetDetectionLocked()
 	a.mu.Unlock()
 	if wasPaused {
 		_ = a.startMonitor()
@@ -1372,7 +1441,7 @@ func (a *App) startMonitorLocked() error {
 	if err != nil {
 		return err
 	}
-	if len(refs) == 0 {
+	if len(refs) == 0 && !a.cfg.autoReferencesFor(active.URL) {
 		a.cancelScheduledResumeLocked()
 		a.status.DetectionPaused = false
 		a.status.Mode = "setup"
@@ -1402,6 +1471,7 @@ func (a *App) startMonitorLocked() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel = cancel
 	a.status.Running = true
+	a.resetDetectionLocked()
 	a.status.Mode = "monitoring"
 	a.status.LastError = ""
 	go a.monitor(ctx)
@@ -1494,12 +1564,15 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 	if e != nil {
 		return e
 	}
-	if len(entries) == 0 && !preview {
+	if len(entries) == 0 && !preview && !cfg.autoReferencesFor(active.URL) {
 		return nil
 	}
-	setup := len(entries) == 0 || !detect
+	setup := !detect || len(entries) == 0 && !cfg.autoReferencesFor(active.URL)
 	refs := make([]*logoTemplate, 0, len(entries))
 	for _, entry := range entries {
+		if entry.Disabled {
+			continue
+		}
 		ref, err := loadReference(a.referenceFile(entry.ID))
 		if err != nil {
 			return fmt.Errorf("read reference %s: %w", entry.ID, err)
@@ -1529,14 +1602,41 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 		args = append(args, "-threads", "1")
 		filter = fmt.Sprintf("fps=2,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2", frameWidth, frameHeight, frameWidth, frameHeight)
 	}
-	args = append(args, "-i", active.URL, "-an", "-vf", filter, "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1")
+	args = append(args, "-i", active.URL)
+	var signals *mediaSignals
+	if !setup && cfg.DetectionMode != "" && cfg.DetectionMode != "classic" {
+		capabilities := signalCapabilities(ctx)
+		a.mu.Lock()
+		if ctx.Err() != nil || a.active.URL != active.URL {
+			a.mu.Unlock()
+			return nil
+		}
+		a.resetDetectionLocked()
+		epoch := a.detection.epoch
+		a.mu.Unlock()
+		signals = newMediaSignals(capabilities, epoch)
+		args[2] = "info"
+		args = signalDecoderArgs(args, filter, capabilities)
+	} else {
+		args = append(args, "-an", "-vf", filter, "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1")
+	}
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	out, e := cmd.StdoutPipe()
 	if e != nil {
 		return e
 	}
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	var signalDone chan struct{}
+	if signals != nil {
+		errOut, err := cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+		signalDone = make(chan struct{})
+		go func() { defer close(signalDone); signals.read(ctx, errOut) }()
+	} else {
+		cmd.Stderr = &stderr
+	}
 	if e = cmd.Start(); e != nil {
 		return e
 	}
@@ -1545,15 +1645,24 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 		if cmd.ProcessState == nil {
 			_ = cmd.Wait()
 		}
+		if signalDone != nil {
+			<-signalDone
+		}
 	}()
 	rd := bufio.NewReaderSize(out, 3<<20)
+	frameIndex := 0
 	for {
 		pix := make([]byte, frameWidth*frameHeight*3)
 		_, e = io.ReadFull(rd, pix)
 		if e != nil {
+			interrupted := ctx.Err() != nil
+			cancel()
 			_ = cmd.Wait()
-			if ctx.Err() != nil {
+			if interrupted {
 				return nil
+			}
+			if signals != nil {
+				return fmt.Errorf("ffmpeg: %w: %s", e, signals.errorText())
 			}
 			if stderr.Len() > 0 {
 				return fmt.Errorf("ffmpeg: %s", strings.TrimSpace(stderr.String()))
@@ -1561,6 +1670,13 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 			return e
 		}
 		f := Frame{frameWidth, frameHeight, pix}
+		var sample *DetectionObservation
+		if signals != nil {
+			o := signals.sample(ctx, frameIndex, cfg.IntervalSeconds)
+			o.ctx = ctx
+			sample = &o
+		}
+		frameIndex++
 		a.mu.Lock()
 		if ctx.Err() != nil || a.active.URL != active.URL {
 			a.mu.Unlock()
@@ -1579,20 +1695,28 @@ func (a *App) monitorStream(parent context.Context, fastPreview bool) error {
 		best := LogoResult{Decision: "missing"}
 		var bestRef *logoTemplate
 		var plane logoPlane
+		results := make([]LogoResult, 0, len(refs))
 		for _, ref := range refs {
 			if len(ref.features) < 8 || ref.cells < 3 {
 				continue
 			}
 			result := ref.find(f, &plane, minimum)
+			results = append(results, result)
 			if bestRef == nil || betterLogoResult(result, best) {
 				best, bestRef = result, ref
 			}
 		}
+		refs = a.cleanupAutomaticReferences(learning, refs, results, cfg, sample, time.Now())
 		a.publishReferenceLearning(learning, refs)
 		if ctx.Err() != nil {
 			return nil
 		}
-		a.observeLogo(best, bestRef, f, cfg, active.URL)
+		if cfg.autoReferencesFor(active.URL) {
+			if added := a.processAutomaticFrame(ctx, f, cfg, active, refs, sample); added != nil {
+				refs = append(refs, added)
+			}
+		}
+		a.observeLogoSample(best, bestRef, f, cfg, active.URL, sample)
 	}
 }
 func (a *App) setError(e error) {
@@ -1648,13 +1772,18 @@ func (a *App) observeLocked(present bool, score float64, cfg Config) {
 	}
 	toPlaceholder := !present && !programLocked && a.status.Misses >= cfg.MissingFrames && mode != "placeholder"
 	toSender := present && !placeholderLocked && a.status.Matches >= cfg.PresentFrames && mode == "placeholder"
+	if cfg.DetectionMode == "hybrid" && a.status.Detection != nil {
+		toPlaceholder = !programLocked && mode != "placeholder" && a.status.Detection.Hybrid.Action == "placeholder"
+		toSender = !placeholderLocked && mode == "placeholder" && a.status.Detection.Hybrid.Action == "sender"
+	}
 	var debugCapture *debugCapture
 	if toPlaceholder {
 		a.status.Mode = "switching-placeholder"
-		debugCapture = a.snapshotDebugCaptureLocked(cfg, now)
+		debugCapture = a.snapshotDebugCaptureLocked(cfg, now, debugToPlaceholder)
 	}
 	if toSender {
 		a.status.Mode = "switching-sender"
+		debugCapture = a.snapshotDebugCaptureLocked(cfg, now, debugToSender)
 	}
 	a.mu.Unlock()
 	if toPlaceholder {
@@ -1663,6 +1792,7 @@ func (a *App) observeLocked(present bool, score float64, cfg Config) {
 		// after the logo had already disappeared.
 		if e := a.play("placeholder", true); e != nil {
 			a.mu.Lock()
+			a.resetDetectionLocked()
 			if a.status.Mode == "switching-placeholder" {
 				a.status.Mode = mode
 			}
@@ -1674,6 +1804,8 @@ func (a *App) observeLocked(present bool, score float64, cfg Config) {
 	} else if toSender {
 		if e := a.switchToSender(true); e != nil {
 			a.setError(e)
+		} else if debugCapture != nil {
+			go a.saveDebugCaptureAndReport(debugCapture)
 		}
 	}
 }
@@ -1795,9 +1927,14 @@ func (a *App) recordPlayback(which string, cfg Config, knownPhaseStart bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.status.Mode = which
+	if !knownPhaseStart {
+		a.resetDetectionLocked()
+	}
 	a.status.LastError = ""
-	if which == "placeholder" {
+	if which == "placeholder" || which == "sender" {
 		a.debugFrames = nil
+	}
+	if which == "placeholder" {
 		if knownPhaseStart {
 			a.placeholderMinUntil = cooldownDeadline(cfg.PlaceholderMinSeconds)
 			a.advertStartedAt = time.Now()

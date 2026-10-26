@@ -233,33 +233,97 @@ func logoColorMedian(values []float64) float64 {
 }
 
 func (t *logoTemplate) logoColorHidden(frame Frame, r Rect) bool {
-	if t.color.estimate == nil || !rectInside(frame, r) {
-		return false
+	check := t.checkLogoContrast(frame, r)
+	return check != nil && check.Protected
+}
+
+// Coverage is weighted by the same contour features as the shape detector.
+// Hidden and visible support are disjoint; colour never confirms presence.
+type LogoContrastCheck struct {
+	HiddenCoverage    float64 `json:"hidden_coverage"`
+	VisibleCoverage   float64 `json:"visible_coverage"`
+	SupportedCoverage float64 `json:"supported_coverage"`
+	HiddenCells       int     `json:"hidden_cells"`
+	TotalCells        int     `json:"total_cells"`
+	Protected         bool    `json:"protected"`
+}
+
+func (t *logoTemplate) checkLogoContrast(frame Frame, r Rect) *LogoContrastCheck {
+	if t.color.estimate == nil || !rectInside(frame, r) || len(t.features) < 8 || t.cells < 3 {
+		return nil
 	}
-	color := t.color.estimate.RGB
-	var sum, squares [3]float64
-	close := 0
-	for y := r.Y; y < r.Y+r.H; y++ {
-		for x := r.X; x < r.X+r.W; x++ {
-			i := (y*frame.W + x) * 3
-			var pixel [3]float64
-			for c := 0; c < 3; c++ {
-				pixel[c] = float64(frame.Pix[i+c])
-				sum[c] += pixel[c]
-				squares[c] += pixel[c] * pixel[c]
-			}
+	sample := sampleLogoColor(frame, r, t.w, t.h)
+	crop := cropFrame(frame, r)
+	if t.legacyContrast != 0 {
+		crop = contrastLogoFrame(crop, t.legacyContrast)
+	}
+	p := filteredLogo(crop, t.w, t.h)
+	var total, hidden, visible float64
+	var cells [16]bool
+	for _, e := range t.features {
+		total += e.weight
+		if logoColorNeighborhoodHidden(sample, e.x, e.y, t.color.estimate.RGB) {
+			hidden += e.weight
+			cells[e.cell] = true
+			continue
+		}
+		i := e.y*t.w + e.x
+		fm, rm := math.Hypot(p.dx[i], p.dy[i]), math.Hypot(e.dx, e.dy)
+		if fm >= 2 && math.Abs(p.dx[i]*e.dx+p.dy[i]*e.dy) >= .75*fm*rm {
+			visible += e.weight
+		}
+	}
+	check := &LogoContrastCheck{TotalCells: t.cells}
+	for _, hidden := range cells {
+		if hidden {
+			check.HiddenCells++
+		}
+	}
+	if total > 0 {
+		check.HiddenCoverage = hidden / total
+		check.VisibleCoverage = visible / total
+		check.SupportedCoverage = (hidden + visible) / total
+	}
+	// At least half the contour must genuinely be ambiguous, in several cells.
+	// The rest must mostly retain the expected contour, so a small bright patch
+	// cannot hide the disappearance of an otherwise clearly observable logo.
+	check.Protected = check.HiddenCoverage >= .5 && check.SupportedCoverage >= .85 && check.HiddenCells >= 3
+	return check
+}
+
+// A small neighbourhood along each masked contour tolerates isolated poles,
+// compression noise and gradual sky gradients. Median absolute deviation
+// rejects texture without letting one dark pixel dominate the whole rectangle.
+func logoColorNeighborhoodHidden(f Frame, x, y int, color [3]float64) bool {
+	var values [3][25]float64
+	n, close := 0, 0
+	for yy := max(0, y-2); yy <= min(f.H-1, y+2); yy++ {
+		for xx := max(0, x-2); xx <= min(f.W-1, x+2); xx++ {
+			i := (yy*f.W + xx) * 3
+			pixel := [3]float64{float64(f.Pix[i]), float64(f.Pix[i+1]), float64(f.Pix[i+2])}
 			if logoColorDistance(pixel, color) <= 32 {
 				close++
 			}
+			for c := 0; c < 3; c++ {
+				values[c][n] = pixel[c]
+			}
+			n++
 		}
 	}
-	n := float64(r.W * r.H)
-	if float64(close)/n < .95 {
+	if float64(close)/float64(n) < .8 {
 		return false
 	}
 	for c := 0; c < 3; c++ {
-		mean := sum[c] / n
-		if math.Abs(mean-color[c]) > 24 || squares[c]/n-mean*mean > 36 {
+		median := logoColorMedian(values[c][:n])
+		// MAD alone is zero for a two-colour texture with a slight majority.
+		// Also bound the central 60% range, ignoring isolated outliers only.
+		if math.Abs(median-color[c]) > 24 || values[c][(n-1)*4/5]-values[c][(n-1)/5] > 18 {
+			return false
+		}
+		for i := 0; i < n; i++ {
+			values[c][i] = math.Abs(values[c][i] - median)
+		}
+		if logoColorMedian(values[c][:n]) > 6 {
 			return false
 		}
 	}

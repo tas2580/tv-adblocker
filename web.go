@@ -5,7 +5,7 @@ const indexHTML = `<!doctype html><html lang=""><meta charset="utf-8"><meta name
 <div class="app-header"><div><h1 data-i18n="app.title"></h1><p class="muted" data-i18n="app.subtitle"></p></div><div class="header-actions"><select id="language-select" class="language-select" data-i18n-aria-label="language.label"><option value="de" data-i18n="language.de"></option><option value="en" data-i18n="language.en"></option></select><button id="theme-toggle" class="theme-toggle" type="button" onclick="toggleTheme()"></button></div></div>
 <nav class="tabs" data-i18n-aria-label="tabs.label"><button class="tab active" type="button" data-tab="status" data-i18n="tabs.status"></button><button class="tab" type="button" data-tab="kodi" data-i18n="tabs.kodi"></button><button class="tab" type="button" data-tab="placeholder" data-i18n="tabs.placeholder"></button><button class="tab" type="button" data-tab="logos" data-i18n="tabs.logos"></button><button class="tab" type="button" data-tab="recognition" data-i18n="tabs.recognition"></button></nav>
 <style>
-[data-panel="status"]{padding:0;overflow:hidden}.status-topline{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.4rem 1.6rem;border-bottom:1px solid var(--border)}.status-topline h2{margin:0}.status-badge{display:inline-flex;align-items:center;gap:.5rem;border-radius:99px;background:var(--surface-alt);color:var(--muted);padding:.4rem .75rem;font-size:.8rem;font-weight:650}.status-badge:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}.status-badge[data-tone="good"]{background:#e7f6ef;color:#226444}.status-badge[data-tone="warm"]{background:#fff2d9;color:#80530b}.status-badge[data-tone="error"]{background:#fdeceb;color:#a32b31}.dark .status-badge[data-tone="good"]{background:#18392e;color:#99dfb9}.dark .status-badge[data-tone="warm"]{background:#3d311d;color:#f0cd88}.dark .status-badge[data-tone="error"]{background:#42232c;color:#ffb5b9}.status-hero{display:flex;align-items:center;gap:1.35rem;padding:2rem 1.6rem;background:linear-gradient(120deg,var(--surface-alt),var(--surface))}.status-icon{display:grid;place-items:center;flex:0 0 76px;height:76px;border:1px solid var(--border);border-radius:22px;color:var(--accent);background:var(--surface);box-shadow:var(--shadow)}.status-icon svg{width:36px;height:36px}.status-hero-copy{min-width:0}.status-eyebrow{color:var(--muted);font-size:.75rem;font-weight:650;letter-spacing:.1em;text-transform:uppercase;margin:0 0 .55rem}.status-hero h3{font-size:clamp(1.6rem,4vw,2.2rem);line-height:1.15;margin:0;overflow-wrap:anywhere}.status-description{margin:.6rem 0 0;color:var(--muted);line-height:1.6}.status-content{padding:0 1.6rem 1.5rem}.status-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem;margin:.2rem 0 1.4rem}.status-card{padding:1.1rem;border:1px solid var(--border);border-radius:12px;min-width:0}.status-card dt{font-size:.8rem;color:var(--muted);margin-bottom:.65rem}.status-card dd{margin:0;font-size:1.1rem;font-weight:650;line-height:1.4}.status-card dd.status-time{font-size:1.65rem;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.1}.status-card p{font-size:.8rem;color:var(--muted);line-height:1.5;margin:.5rem 0 0}.status-actions{display:flex;flex-wrap:wrap;gap:.5rem}.status-actions button{margin:0}.status-actions .secondary{background:var(--surface-alt);color:var(--text);border:1px solid var(--border)}.status-actions button:disabled{opacity:.5;cursor:wait}.status-notice{background:var(--surface-alt);border-left:3px solid var(--accent);border-radius:6px;padding:.8rem 1rem;margin:0 0 1rem;font-size:.9rem;line-height:1.6;overflow-wrap:anywhere}.status-errors{border-color:#d97706}.status-errors p{margin:0}.status-details{margin-top:1.4rem;padding-top:1rem;border-top:1px solid var(--border)}.status-details summary{cursor:pointer;color:var(--muted);font-size:.85rem;padding:.25rem 0;width:fit-content}.status-details #status{font-size:.8rem;overflow-wrap:anywhere;margin:1rem 0 0}button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}@media(max-width:600px){.app-header{align-items:flex-start;flex-direction:column;gap:.5rem}.app-header h1{font-size:1.55rem}.header-actions{width:100%}.header-actions .language-select{flex:1}.header-actions .theme-toggle{margin:0}.status-topline{padding:1rem;flex-wrap:wrap}.status-hero{padding:1.5rem 1rem;gap:1rem}.status-icon{flex-basis:54px;height:54px;border-radius:16px}.status-icon svg{width:28px;height:28px}.status-content{padding:0 1rem 1rem}.status-cards{grid-template-columns:1fr;gap:.6rem}.status-card{padding:.9rem 1rem}.status-card dt{margin-bottom:.35rem}.status-card dd.status-time{font-size:1.4rem}.status-actions button{flex:1 1 100%}}
+[data-panel="status"]{padding:0;overflow:hidden}.status-topline{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.4rem 1.6rem;border-bottom:1px solid var(--border)}.status-topline h2{margin:0}.status-badge{display:inline-flex;align-items:center;gap:.5rem;border-radius:99px;background:var(--surface-alt);color:var(--muted);padding:.4rem .75rem;font-size:.8rem;font-weight:650}.status-badge:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}.status-badge[data-tone="good"]{background:#e7f6ef;color:#226444}.status-badge[data-tone="warm"]{background:#fff2d9;color:#80530b}.status-badge[data-tone="error"]{background:#fdeceb;color:#a32b31}.dark .status-badge[data-tone="good"]{background:#18392e;color:#99dfb9}.dark .status-badge[data-tone="warm"]{background:#3d311d;color:#f0cd88}.dark .status-badge[data-tone="error"]{background:#42232c;color:#ffb5b9}.status-hero{display:flex;align-items:center;gap:1.35rem;padding:2rem 1.6rem;background:linear-gradient(120deg,var(--surface-alt),var(--surface))}.status-icon{display:grid;place-items:center;flex:0 0 76px;height:76px;border:1px solid var(--border);border-radius:22px;color:var(--accent);background:var(--surface);box-shadow:var(--shadow)}.status-icon svg{width:36px;height:36px}.status-hero-copy{min-width:0}.status-eyebrow{color:var(--muted);font-size:.75rem;font-weight:650;letter-spacing:.1em;text-transform:uppercase;margin:0 0 .55rem}.status-hero h3{font-size:clamp(1.6rem,4vw,2.2rem);line-height:1.15;margin:0;overflow-wrap:anywhere}.status-description{margin:.6rem 0 0;color:var(--muted);line-height:1.6}.status-content{padding:0 1.6rem 1.5rem}.status-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem;margin:.2rem 0 1.4rem}.status-card{padding:1.1rem;border:1px solid var(--border);border-radius:12px;min-width:0}.status-card dt{font-size:.8rem;color:var(--muted);margin-bottom:.65rem}.status-card dd{margin:0;font-size:1.1rem;font-weight:650;line-height:1.4}.status-card dd.status-time{font-size:1.65rem;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.1}.status-card p{font-size:.8rem;color:var(--muted);line-height:1.5;margin:.5rem 0 0}.status-actions{display:flex;flex-wrap:wrap;gap:.5rem}.status-actions button{margin:0}.status-actions .secondary{background:var(--surface-alt);color:var(--text);border:1px solid var(--border)}.status-actions button:disabled{opacity:.5;cursor:wait}.status-notice{background:var(--surface-alt);border-left:3px solid var(--accent);border-radius:6px;padding:.8rem 1rem;margin:0 0 1rem;font-size:.9rem;line-height:1.6;overflow-wrap:anywhere}.status-errors{border-color:#d97706}.status-errors p{margin:0}.status-details #status{font-size:.8rem;overflow-wrap:anywhere;margin:1rem 0 0}button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}@media(max-width:600px){.app-header{align-items:flex-start;flex-direction:column;gap:.5rem}.app-header h1{font-size:1.55rem}.header-actions{width:100%}.header-actions .language-select{flex:1}.header-actions .theme-toggle{margin:0}.status-topline{padding:1rem;flex-wrap:wrap}.status-hero{padding:1.5rem 1rem;gap:1rem}.status-icon{flex-basis:54px;height:54px;border-radius:16px}.status-icon svg{width:28px;height:28px}.status-content{padding:0 1rem 1rem}.status-cards{grid-template-columns:1fr;gap:.6rem}.status-card{padding:.9rem 1rem}.status-card dt{margin-bottom:.35rem}.status-card dd.status-time{font-size:1.4rem}.status-actions button{flex:1 1 100%}}
 .status-programme{margin:.55rem 0 0;font-size:1.05rem;font-weight:600;line-height:1.45;overflow-wrap:anywhere}.status-icon img{width:100%;height:100%;min-height:0;object-fit:contain;padding:8px}.status-icon>[hidden]{display:none}
 [data-panel="status"] [hidden]{display:none}.status-kodi-unavailable{margin:0;padding:2.5rem 1rem;text-align:center;font-size:1.25rem;font-weight:650}
 </style>
@@ -25,9 +25,12 @@ const indexHTML = `<!doctype html><html lang=""><meta charset="utf-8"><meta name
     <p id="status-notice" class="status-notice" hidden></p>
     <div id="status-errors" class="status-notice status-errors" role="status" hidden></div>
     <div class="status-actions"><button id="detection-toggle" type="button" onclick="toggleDetection()" disabled data-i18n="status.startDetection"></button><button id="play-sender" class="secondary" type="button" hidden onclick="post('/api/play/sender')" data-i18n="status.playSender"></button><button id="play-placeholder" class="secondary" type="button" onclick="post('/api/play/placeholder')" disabled data-i18n="status.playPlaceholder"></button><button id="cancel-program-cooldown" class="secondary" type="button" hidden onclick="post('/api/cancel-program-cooldown')" data-i18n="status.cancelCooldown"></button><button id="resume-automatic" class="secondary" type="button" hidden onclick="post('/api/resume-automatic')" data-i18n="status.resumeAutomatic"></button></div>
+    <div id="status-debug-tools" hidden>
 ` + logoDiagnosticHTML + `
 ` + debugCaptureHTML + `
-    <details class="status-details"><summary data-i18n="status.details"></summary><div id="status" data-i18n="common.loading"></div></details>
+` + detectionStatusHTML + `
+    </div>
+    <details class="settings-advanced status-details"><summary data-i18n="status.details"></summary><div id="status" data-i18n="common.loading"></div></details>
   </div>
 </section>
 <section class="tab-panel settings-panel" data-panel="kodi">
@@ -80,6 +83,7 @@ const indexHTML = `<!doctype html><html lang=""><meta charset="utf-8"><meta name
     <label><span data-i18n="recognition.similarity"></span><input id="similarity_minimum" type="number" min="0.1" max="1" step="0.01"></label>
     <label><span data-i18n="recognition.contrast"></span><input id="contrast_strength" type="number" min="0.5" max="3" step="0.1"></label>
   </div><label class="checkbox toggle-card"><input id="debug_enabled" type="checkbox"><span data-i18n="debug.enable"></span></label><p class="field-hint" data-i18n="debug.enableHint"></p></details>
+` + detectionSettingsHTML + `
 ` + channelThresholdHTML + `
   </div>
 <div class="settings-footer"><p data-i18n="settings.saveHint"></p><div class="status-actions"><button type="button" onclick="saveConfig()" data-i18n="recognition.save"></button></div></div>
@@ -174,6 +178,7 @@ const helpTargets=[
   ['[data-panel="status"] .status-content>.status-actions','status.controls','before'],
   ['[data-panel="status"] .logo-diagnostic','status.diagnostic','details'],
   ['[data-panel="status"] .debug-captures','status.debug','details'],
+  ['#detection-diagnostics','status.signals','details'],
   ['[data-panel="status"] .status-details:not(.logo-diagnostic):not(.debug-captures)','status.details','details'],
   ['[data-panel="kodi"] .settings-card:nth-child(1)','kodi.connection'],
   ['[data-panel="kodi"] .settings-card:nth-child(2)','kodi.channels'],
@@ -186,7 +191,8 @@ const helpTargets=[
   ['[data-panel="logos"] .reference-library','logos.library'],
   ['[data-panel="recognition"] .settings-card:nth-child(1)','recognition.detection'],
   ['[data-panel="recognition"] .settings-card:nth-child(2)','recognition.timing'],
-  ['[data-panel="recognition"] .settings-advanced:not(.channel-thresholds)','recognition.advanced','details'],
+  ['[data-panel="recognition"] .settings-advanced:not(.channel-thresholds):not(#detection-settings)','recognition.advanced','details'],
+  ['#detection-settings','recognition.extended','details'],
   ['[data-panel="recognition"] .channel-thresholds','recognition.channels','details']
 ];
 let helpOpener=null,openHelpKey='';
@@ -246,7 +252,7 @@ function renderElapsedClock(){
   $('status-elapsed').textContent=time;
   if(statusDetailLines){
     statusDetailLines[statusDetailElapsedIndex]=t(elapsedClock.phase==='advert'?'status.advertElapsed':'status.programElapsed',{time});
-    $('status').textContent=statusDetailLines.filter(Boolean).join('\n');
+    $('status').textContent=statusDetailLines.join('\n');
   }
 }
 function tickElapsedClock(){
@@ -314,8 +320,107 @@ function renderStatusError(error){
   renderStatusErrors([t('status.offlineHint'),error.message].filter(Boolean));
   document.querySelectorAll('.status-actions button').forEach(button=>button.disabled=true);
 }
-async function status(syncForm=false){try{let x=await api('/api/status');cfg=x.config;if(syncForm||!formInitialized){for(let f of fields){let k=['kodi_url','kodi_username'].includes(f)?f.slice(5):f;if(cfg[k]!==undefined)['pause_detection_during_program_lock','debug_enabled'].includes(f)?$(f).checked=cfg[k]:$(f).value=cfg[k]}syncFillerForm(cfg,x.filler_timezone);syncChannelThresholdForm(cfg);if(cfg.kodi){$('kodi_url').value=cfg.kodi.url||'';$('kodi_username').value=cfg.kodi.username||''}$('kodi_password').value='';formInitialized=true}let kodiUnavailable=Boolean(x.status.kodi_error);$('status-kodi-unavailable').hidden=!kodiUnavailable;document.querySelectorAll('[data-status-online]').forEach(element=>element.hidden=kodiUnavailable);if(kodiUnavailable){currentActiveURL='';elapsedClock=null;statusDetailLines=null;return}let active=x.active_channel||{},key=active.url||'';if(key!==currentActiveURL){currentActiveURL=key;closeLogoMask();if(captureID)void cancelLogoCapture();refreshReferences()}let s=x.status;syncElapsedClock(s,active);let placeholderActive=['placeholder','manual-placeholder','switching-placeholder'].includes(s.mode),source=t('status.sourceLibrary'),elapsed=placeholderActive?s.advert_elapsed_seconds:s.program_elapsed_seconds,lockState=s.program_cooldown_active?t('status.lockActive',{time:formatSeconds(s.program_cooldown_remaining||0)}):t('status.lockInactive'),detectorActive=s.running||s.detection_paused;$('detection-toggle').textContent=t(s.detection_paused?'status.detectionPaused':s.running?'status.stopDetection':'status.startDetection');$('detection-toggle').dataset.running=String(detectorActive);$('play-sender').hidden=!placeholderActive;$('play-placeholder').hidden=placeholderActive;$('resume-automatic').hidden=!s.manual_placeholder;statusDetailLines=[t('status.channel',{value:active.name||t('status.noChannel')}),t('status.kodiLabel',{value:s.kodi_label||'–'}),t('status.kodiFile',{value:s.kodi_file||'–'}),t('status.placeholderSource',{value:source}),t('status.mode',{value:modeName(s.mode)}),t(placeholderActive?'status.advertElapsed':'status.programElapsed',{time:formatSeconds(elapsed||0)}),t('status.lock',{value:lockState}),t('status.timing',{program:formatSeconds(cfg.program_cooldown_seconds||0),advert:formatSeconds(cfg.placeholder_min_seconds||0)}),t('status.running',{value:t(s.running?'common.yes':'common.no')}),s.detection_paused?t('status.detectionPaused'):'',t('status.logo',{value:s.logo_present===undefined?t('status.unknown'):t(s.logo_present?'common.yes':'common.no')}),t('status.similarity',{value:(s.similarity||0).toFixed(3)}),t('status.matches',{matches:s.matches,misses:s.misses}),s.placeholder_min_remaining?t('status.minimumRemaining',{time:formatSeconds(s.placeholder_min_remaining)}):'',s.kodi_error?t('status.kodiError',{value:s.kodi_error}):'',s.last_error?t('status.error',{value:s.last_error}):'',s.playlist_error?t('status.playlistError',{value:s.playlist_error}):'',t('status.references',{count:x.reference_count||0})];statusDetailElapsedIndex=5;$('status').textContent=statusDetailLines.filter(Boolean).join('\n');renderStatus(x);renderElapsedClock();if($('debug-capture-panel').open)void refreshDebugCaptures();if(previewWanted())void refreshReferences()}catch(e){renderStatusError(e)}}
-function collect(){let n={...cfg};n.channel_similarity_minimum=collectChannelThresholds();for(let f of ['m3u_url','public_base_url','interval_seconds','missing_frames','present_frames','program_cooldown_seconds','placeholder_min_seconds','similarity_minimum','contrast_strength'])n[f]=['interval_seconds','missing_frames','present_frames','program_cooldown_seconds','placeholder_min_seconds','similarity_minimum','contrast_strength'].includes(f)?Number($(f).value):$(f).value;n.pause_detection_during_program_lock=$('pause_detection_during_program_lock').checked;n.debug_enabled=$('debug_enabled').checked;n.fillers=structuredClone(fillerDraft);n.fallback_filler_id=fallbackFillerID;n.kodi={...(cfg.kodi||{}),url:$('kodi_url').value,username:$('kodi_username').value,password:$('kodi_password').value};return n}
+function syncDebugPanels(){
+  const container=$('status-debug-tools');
+  container.hidden=!cfg.debug_enabled;
+  if(container.hidden)container.querySelectorAll('details').forEach(panel=>panel.open=false);
+}
+function renderStatusDetails(x){
+  const s=x.status,c=x.config,active=x.active_channel||{},d=s.detection,r=s.logo_detection;
+  const placeholder=['placeholder','manual-placeholder','switching-placeholder'].includes(s.mode),mode=c.detection_mode||'classic';
+  const yesNo=value=>t(value?'common.yes':'common.no');
+  const number=(value,digits=3)=>Number.isFinite(value)?value.toFixed(digits):'–';
+  const date=value=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleString(language):'–';
+  const channelMinimum=c.channel_similarity_minimum?.[active.url];
+  const channelConfig=c.channel_detection?.[active.url]||{};
+  const autoReferences=mode!=='classic'&&(channelConfig.automatic_references??c.automatic_references??true);
+  const learning=mode!=='classic'&&(channelConfig.sender_learning??c.sender_learning??true);
+  statusDetailLines=[];
+  const add=(key,values={})=>statusDetailLines.push(t(key,values));
+  const section=key=>{if(statusDetailLines.length)statusDetailLines.push('');add(key)};
+
+  section('status.detailsPlayback');
+  add('status.channel',{value:active.name||t('status.noChannel')});
+  add('status.programme',{value:s.kodi_programme||'–'});
+  add('status.kodiLabel',{value:s.kodi_label||'–'});
+  add('status.kodiFile',{value:s.kodi_file||'–'});
+  add('status.placeholderSource',{value:t('status.sourceLibrary')});
+  add('status.mode',{value:modeName(s.mode)});
+  add('status.playlistUpdated',{value:date(s.playlist_updated_at)});
+
+  section('status.detailsTiming');
+  statusDetailElapsedIndex=statusDetailLines.length;
+  add(placeholder?'status.advertElapsed':'status.programElapsed',{time:formatSeconds((placeholder?s.advert_elapsed_seconds:s.program_elapsed_seconds)||0)});
+  add('status.running',{value:yesNo(s.running)});
+  add('status.manualControl',{value:yesNo(s.manual_placeholder)});
+  add('status.paused',{value:yesNo(s.detection_paused)});
+  add('status.lock',{value:s.program_cooldown_active?t('status.lockActive',{time:formatSeconds(s.program_cooldown_remaining||0)}):t('status.lockInactive')});
+  add('status.timing',{program:formatSeconds(c.program_cooldown_seconds||0),advert:formatSeconds(c.placeholder_min_seconds||0)});
+  if(s.placeholder_min_remaining)add('status.minimumRemaining',{time:formatSeconds(s.placeholder_min_remaining)});
+  add('status.pauseDuringLock',{value:yesNo(c.pause_detection_during_program_lock)});
+  add('status.interval',{seconds:c.interval_seconds});
+  add('status.confirmationFrames',{missing:c.missing_frames,present:c.present_frames});
+  add('status.matches',{matches:s.matches||0,misses:s.misses||0});
+
+  section('status.detailsLogo');
+  add('status.lastFrame',{value:date(s.last_frame)});
+  add('status.references',{count:x.reference_count||0});
+  add('status.logo',{value:s.logo_present==null?t('status.unknown'):yesNo(s.logo_present)});
+  add('status.similarity',{value:number(s.similarity)});
+  add('status.threshold',{value:number(channelMinimum??c.similarity_minimum),source:t(channelMinimum==null?'status.thresholdGlobal':'status.thresholdChannel')});
+  add('status.contrast',{value:number(c.contrast_strength,1)});
+  if(r){
+    const rect=r.rect||{};
+    add('diagnostic.values',{decision:t('decision.'+r.decision),score:number(r.score),threshold:number(r.threshold),edge:number(r.edge_score),structure:number(r.structure_score),coverage:Number.isFinite(r.coverage)?Math.round(r.coverage*100):'–',reference:r.reference_id||'–',x:rect.x??'–',y:rect.y??'–',w:rect.w??'–',h:rect.h??'–',scale:Number.isFinite(r.scale)?Math.round(r.scale*100):'–'});
+    const notes=logoColorDiagnosticText(r).trim();
+    if(notes)statusDetailLines.push(notes);
+  }else add('diagnostic.empty');
+
+  section('status.detailsDetection');
+  add('status.detectorMode',{value:t('detection.'+mode)});
+  add('status.autoReferences',{value:yesNo(autoReferences)});
+  add('status.senderLearning',{value:yesNo(learning)});
+  if(d){
+    for(const engine of ['classic','hybrid']){
+      const decision=d[engine];
+      if(decision)add('status.engineDecision',{engine:t('detection.'+engine),state:t('detection.state.'+decision.state),reason:t('detection.reason.'+decision.reason),matches:decision.matches,misses:decision.misses,remaining:Math.ceil(decision.remaining_seconds||0)});
+    }
+    const available=d.observation?.signals?.available||{};
+    add('detection.signals',{black:yesNo(available.black),silence:yesNo(available.silence),scene:yesNo(available.scene)});
+    add('status.extraSignals',{format:yesNo(available.format),visible:yesNo(available.visible_format),timing:yesNo(available.timing)});
+    if(d.profile)add('detection.profile',{breaks:d.profile.breaks,active:yesNo(d.profile.active),duration:Math.round(d.profile.typical_duration_seconds),automatic:d.automatic_state?t('detection.auto.'+d.automatic_state):'–'});
+  }else add('detection.noData');
+
+  const errors=[s.kodi_error?t('status.kodiError',{value:s.kodi_error}):'',s.last_error?t('status.error',{value:s.last_error}):'',s.playlist_error?t('status.playlistError',{value:s.playlist_error}):'',s.debug_error?t('debug.saveError',{error:s.debug_error}):'',d?.error?t('status.error',{value:d.error}):''].filter(Boolean);
+  if(errors.length){section('status.detailsErrors');statusDetailLines.push(...errors)}
+  $('status').textContent=statusDetailLines.join('\n');
+}
+async function status(syncForm=false){
+  const recordingVersion=detectionRecordingVersion;
+  try{
+    const x=await api('/api/status');cfg=x.config;syncDebugPanels();
+    if(syncForm||!formInitialized){
+      for(let f of fields){let k=['kodi_url','kodi_username'].includes(f)?f.slice(5):f;if(cfg[k]!==undefined)['pause_detection_during_program_lock','debug_enabled'].includes(f)?$(f).checked=cfg[k]:$(f).value=cfg[k]}
+      syncFillerForm(cfg,x.filler_timezone);syncChannelThresholdForm(cfg);syncDetectionConfig(cfg);
+      if(cfg.kodi){$('kodi_url').value=cfg.kodi.url||'';$('kodi_username').value=cfg.kodi.username||''}
+      $('kodi_password').value='';formInitialized=true;
+    }
+    const kodiUnavailable=Boolean(x.status.kodi_error);
+    $('status-kodi-unavailable').hidden=!kodiUnavailable;
+    document.querySelectorAll('[data-status-online]').forEach(element=>element.hidden=kodiUnavailable);
+    if(kodiUnavailable){currentActiveURL='';elapsedClock=null;statusDetailLines=null;return}
+    const active=x.active_channel||{},key=active.url||'',s=x.status;
+    if(key!==currentActiveURL){currentActiveURL=key;closeLogoMask();if(captureID)void cancelLogoCapture();refreshReferences()}
+    renderDetectionStatus(x,recordingVersion);syncElapsedClock(s,active);
+    const placeholderActive=['placeholder','manual-placeholder','switching-placeholder'].includes(s.mode);
+    $('detection-toggle').dataset.running=String(s.running||s.detection_paused);
+    $('play-sender').hidden=!placeholderActive;$('play-placeholder').hidden=placeholderActive;$('resume-automatic').hidden=!s.manual_placeholder;
+    renderStatusDetails(x);renderStatus(x);renderElapsedClock();
+    if($('debug-capture-panel').open)void refreshDebugCaptures();
+    if(previewWanted())void refreshReferences();
+  }catch(e){renderStatusError(e)}
+}
+function collect(){let n={...cfg};n.channel_similarity_minimum=collectChannelThresholds();collectDetectionConfig(n);for(let f of ['m3u_url','public_base_url','interval_seconds','missing_frames','present_frames','program_cooldown_seconds','placeholder_min_seconds','similarity_minimum','contrast_strength'])n[f]=['interval_seconds','missing_frames','present_frames','program_cooldown_seconds','placeholder_min_seconds','similarity_minimum','contrast_strength'].includes(f)?Number($(f).value):$(f).value;n.pause_detection_during_program_lock=$('pause_detection_during_program_lock').checked;n.debug_enabled=$('debug_enabled').checked;n.fillers=structuredClone(fillerDraft);n.fallback_filler_id=fallbackFillerID;n.kodi={...(cfg.kodi||{}),url:$('kodi_url').value,username:$('kodi_username').value,password:$('kodi_password').value};return n}
 async function saveConfig(notify=true){try{await api('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(collect())});await status(true);await refreshReferences();if(notify)alert(t('alerts.saved'))}catch(e){if(notify)alert(e.message);throw e}}
 async function post(p){try{await api(p,{method:'POST'});await status()}catch(e){alert(e.message)}}
 async function toggleDetection(){await post($('detection-toggle').dataset.running==='true'?'/api/stop':'/api/start')}
@@ -359,7 +464,7 @@ function selectReference(ref){void openLogoMask(ref.id);rect={...ref.rect};selec
 async function saveReference(){if(!rect)return alert(t('alerts.selectArea'));try{let saved=await api('/api/reference',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(rect)});selectedReferenceID=saved.id;await openLogoMask(saved.id);await status();await refreshReferences();alert(t('alerts.referenceSaved'))}catch(e){alert(e.message)}}
 async function optimizeSelection(){if(!rect)return alert(t('alerts.selectArea'));try{rect=await api('/api/optimize-rect',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(rect)});showSelection();$('rect').textContent=t('logos.selectionSize',{width:rect.w,height:rect.h})}catch(e){alert(e.message)}}
 
-` + fillerJS + logoEditorJS + referenceLibraryJS + debugCaptureJS + channelThresholdJS + `
+` + fillerJS + logoEditorJS + referenceLibraryJS + debugCaptureJS + channelThresholdJS + detectionJS + `
 async function bootstrap(){setupUI();try{await setLanguage(localStorage.getItem('tv-logo-monitor-language')||preferredLanguage());await status();setInterval(tickElapsedClock,1000);setInterval(status,3000);await refreshReferences()}catch(e){renderStatusError(e)}}
 bootstrap();
 </script></html>`

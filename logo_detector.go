@@ -168,17 +168,26 @@ func prepareLogo(id string, ref Frame, rect Rect, mask []byte) *logoTemplate {
 }
 
 type LogoResult struct {
-	Decision          string             `json:"decision"`
-	ReferenceID       string             `json:"reference_id,omitempty"`
-	Rect              Rect               `json:"rect"`
-	Scale             float64            `json:"scale"`
-	Score             float64            `json:"score"`
-	EdgeScore         float64            `json:"edge_score"`
-	StructureScore    float64            `json:"structure_score"`
-	Coverage          float64            `json:"coverage"`
-	Threshold         float64            `json:"threshold"`
-	LogoColor         *LogoColorEstimate `json:"logo_color,omitempty"`
-	UncertaintyReason string             `json:"uncertainty_reason,omitempty"`
+	Decision          string              `json:"decision"`
+	ReferenceID       string              `json:"reference_id,omitempty"`
+	Rect              Rect                `json:"rect"`
+	Scale             float64             `json:"scale"`
+	Score             float64             `json:"score"`
+	EdgeScore         float64             `json:"edge_score"`
+	StructureScore    float64             `json:"structure_score"`
+	Coverage          float64             `json:"coverage"`
+	Threshold         float64             `json:"threshold"`
+	LogoColor         *LogoColorEstimate  `json:"logo_color,omitempty"`
+	UncertaintyReason string              `json:"uncertainty_reason,omitempty"`
+	RejectionReason   string              `json:"rejection_reason,omitempty"`
+	PositionChecks    []LogoPositionCheck `json:"position_checks,omitempty"`
+}
+
+// Position checks contain only direct shape comparisons, never nested checks.
+// Keep them even when the search returns a stronger background candidate.
+type LogoPositionCheck struct {
+	Result   LogoResult         `json:"result"`
+	Contrast *LogoContrastCheck `json:"contrast,omitempty"`
 }
 
 func logoDecision(score, threshold float64) string {
@@ -201,7 +210,12 @@ func (t *logoTemplate) comparePlane(frame Frame, r Rect, scale, minimum float64,
 		threshold = math.Max(.85, minimum)
 	}
 	out := LogoResult{Decision: "missing", ReferenceID: t.id, Rect: r, Scale: scale, Threshold: threshold}
-	if !rectInside(frame, r) || len(t.features) < 8 || t.cells < 3 {
+	if !rectInside(frame, r) {
+		out.RejectionReason = "outside_frame"
+		return out
+	}
+	if len(t.features) < 8 || t.cells < 3 {
+		out.RejectionReason = "insufficient_features"
 		return out
 	}
 	var p logoPlane
@@ -242,6 +256,7 @@ func (t *logoTemplate) comparePreparedPlane(p *logoPlane, stride, base int, out 
 		}
 	}
 	if fe < 1 || re < 1 || total == 0 {
+		out.RejectionReason = "insufficient_edge_energy"
 		return out
 	}
 	out.EdgeScore = math.Min(1, math.Abs(dot)/math.Sqrt(fe*re))
@@ -253,7 +268,12 @@ func (t *logoTemplate) comparePreparedPlane(p *logoPlane, stride, base int, out 
 		}
 	}
 	// Independent spatial support prevents a single strong line from dominating.
-	if count < max(3, (t.cells+1)/2) || out.Coverage < .45 {
+	if count < max(3, (t.cells+1)/2) {
+		out.RejectionReason = "insufficient_spatial_support"
+		return out
+	}
+	if out.Coverage < .45 {
+		out.RejectionReason = "insufficient_contour_coverage"
 		return out
 	}
 	// Locally normalized intensity structure, insensitive to exposure and to a
@@ -278,30 +298,38 @@ func (t *logoTemplate) comparePreparedPlane(p *logoPlane, stride, base int, out 
 	}
 	out.Score = .85*(.7*out.EdgeScore+.3*out.Coverage) + .15*out.StructureScore
 	out.Decision = logoDecision(out.Score, out.Threshold)
+	if out.Decision == "missing" {
+		out.RejectionReason = "similarity_below_threshold"
+	} else if out.Decision == "uncertain" {
+		out.RejectionReason = "similarity_uncertainty_band"
+	}
 	return out
 }
 
 // All templates share the decoded frame's gradient map. Full mask comparisons
 // run only for the strongest spatially distinct candidates.
 func (t *logoTemplate) find(frame Frame, plane *logoPlane, minimum float64) LogoResult {
-	best := t.findShape(frame, plane, minimum)
+	checks := []LogoPositionCheck{{Result: t.compare(frame, t.last, t.lastScale, minimum)}}
+	if t.last != t.rect {
+		checks = append(checks, LogoPositionCheck{Result: t.compare(frame, t.rect, 1, minimum)})
+	}
+	best := t.findShape(frame, plane, minimum, checks)
 	if best.Decision == "present" {
 		t.learnLogoColor(frame, best.Rect)
 	}
 	// Search for a real shape first. Colour alone must never confirm presence,
 	// move the tracked position, or hide a confirmed match from another reference.
-	if best.Decision == "missing" {
-		for _, position := range []struct {
-			rect  Rect
-			scale float64
-		}{{t.last, t.lastScale}, {t.rect, 1}} {
-			if t.logoColorHidden(frame, position.rect) {
-				best = t.compare(frame, position.rect, position.scale, minimum)
-				best.Decision, best.UncertaintyReason = "uncertain", "logo_color_low_contrast"
-				break
-			}
+	for i := range checks {
+		check := &checks[i]
+		if check.Result.Decision != "present" {
+			check.Contrast = t.checkLogoContrast(frame, check.Result.Rect)
+		}
+		if best.Decision == "missing" && check.Contrast != nil && check.Contrast.Protected {
+			best = check.Result
+			best.Decision, best.UncertaintyReason = "uncertain", "logo_color_low_contrast"
 		}
 	}
+	best.PositionChecks = checks
 	if t.color.estimate != nil {
 		estimate := *t.color.estimate
 		best.LogoColor = &estimate
@@ -309,14 +337,14 @@ func (t *logoTemplate) find(frame Frame, plane *logoPlane, minimum float64) Logo
 	return best
 }
 
-func (t *logoTemplate) findShape(frame Frame, plane *logoPlane, minimum float64) LogoResult {
-	best := t.compare(frame, t.last, t.lastScale, minimum)
+func (t *logoTemplate) findShape(frame Frame, plane *logoPlane, minimum float64, checks []LogoPositionCheck) LogoResult {
+	best := checks[0].Result
 	if best.Decision == "present" {
 		t.pendingFrames = 0
 		return best
 	}
 	if t.last != t.rect {
-		if r := t.compare(frame, t.rect, 1, minimum); betterLogoResult(r, best) {
+		if r := checks[1].Result; betterLogoResult(r, best) {
 			best = r
 		}
 		if best.Decision == "present" {
